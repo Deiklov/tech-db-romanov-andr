@@ -1,8 +1,8 @@
 package main
 
 import (
+	"./handlers"
 	"./middleware"
-	"./userhandlers"
 	"github.com/gorilla/mux"
 	"github.com/jmoiron/sqlx"
 	"log"
@@ -16,10 +16,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	userhandler := userhandlers.UserHandler{db}
-	r.HandleFunc("/user/{nickname}/create", userhandler.CreateUser).Methods(http.MethodPost)
-	r.HandleFunc("/user/{nickname}/profile", userhandler.UpdateUser).Methods(http.MethodPost)
-	r.HandleFunc("/user/{nickname}/profile", userhandler.GetUser).Methods(http.MethodGet)
+	handlers := handlers.Handler{db}
+	r.HandleFunc("/user/{nickname}/create", handlers.CreateUser).Methods(http.MethodPost)
+	r.HandleFunc("/user/{nickname}/profile", handlers.UpdateUser).Methods(http.MethodPost)
+	r.HandleFunc("/user/{nickname}/profile", handlers.GetUser).Methods(http.MethodGet)
+
+	r.HandleFunc("/forum/create", handlers.CreateForum).Methods(http.MethodPost)
+	r.HandleFunc("/forum/{slug}/details", handlers.ForumDetails).Methods(http.MethodGet)
+	r.HandleFunc("/forum/{slug}/create", handlers.NewThread).Methods(http.MethodPost)
 	http.Handle("/", r)
-	http.ListenAndServe(":8080", middleware.SetApplJson(r))
+	http.ListenAndServe(":5000", middleware.SetApplJson(r))
 }

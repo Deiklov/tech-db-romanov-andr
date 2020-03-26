@@ -1,4 +1,4 @@
-package userhandlers
+package handlers
 
 import (
 	"../models"
@@ -9,12 +9,11 @@ import (
 	"net/http"
 )
 
-type UserHandler struct {
+type Handler struct {
 	DB *sqlx.DB
 }
 
-//TODO: проверка на занятого юзера
-func (handler *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
+func (handler *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	newUserNickname := mux.Vars(r)["nickname"] //take user nickname
 	newUser := &models.User{}                  //form for user data
 	newUser.Nickname = newUserNickname
@@ -65,7 +64,7 @@ func (handler *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(newUser)
 }
 
-func (handler *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
+func (handler *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	newUserNickname := mux.Vars(r)["nickname"] //take user nickname
 	newUser := &models.User{}                  //form for user data
 	newUser.Nickname = newUserNickname
@@ -103,7 +102,7 @@ func (handler *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(newUser)
 }
-func (handler *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
+func (handler *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
 	userNickname := mux.Vars(r)["nickname"] //take user nickname
 	user := &models.User{}                  //form for user data
 	userQuery := `SELECT about,email,fullname,nickname from users where nickname=$1;`
