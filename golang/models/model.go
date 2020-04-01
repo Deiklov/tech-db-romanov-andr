@@ -18,12 +18,22 @@ type Forum struct {
 }
 
 type Thread struct {
-	Author  string    `json:"author"`
-	Created time.Time `json:"created"`
-	Forum   string    `json:"forum"`
-	Id      int       `json:"id"`
-	Message string    `json:"message"`
-	Slug    string    `json:"slug"`
-	Title   string    `json:"title"`
-	Votes   int       `json:"votes"`
+	Author  string    `json:"author" db:"author"`
+	Created time.Time `json:"created" db:"created"`
+	Forum   string    `json:"forum" db:"forum"`
+	Id      int       `json:"id" db:"id"`
+	Message string    `json:"message" db:"message"`
+	Slug    string    `json:"slug" db:"slug"`
+	Title   string    `json:"title" db:"title"`
+	Votes   int       `json:"votes" db:"votes"`
+}
+type ThreadParams struct {
+	Limit int       `schema:"limit"`
+	Since time.Time `schema:"since"`
+	Desc  bool      `schema:"desc"`
+}
+type ForumUserParams struct {
+	Limit int    `schema:"limit"`
+	Since string `schema:"since"`
+	Desc  bool   `schema:"desc"`
 }

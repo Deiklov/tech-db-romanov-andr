@@ -24,6 +24,8 @@ func main() {
 	r.HandleFunc("/forum/create", handlers.CreateForum).Methods(http.MethodPost)
 	r.HandleFunc("/forum/{slug}/details", handlers.ForumDetails).Methods(http.MethodGet)
 	r.HandleFunc("/forum/{slug}/create", handlers.NewThread).Methods(http.MethodPost)
+	r.HandleFunc("/forum/{slug}/threads", handlers.AllThreadsFromForum).Methods(http.MethodGet)
+	r.HandleFunc("/forum/{slug}/users", handlers.AllUsersForum).Methods(http.MethodGet)
 	http.Handle("/", r)
 	http.ListenAndServe(":5000", middleware.SetApplJson(r))
 }

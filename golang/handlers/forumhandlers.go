@@ -4,8 +4,10 @@ import (
 	"../models"
 	"encoding/json"
 	"github.com/gorilla/mux"
+	"github.com/gorilla/schema"
 	"github.com/lib/pq"
 	"net/http"
+	"strconv"
 )
 
 func (handler *Handler) CreateForum(w http.ResponseWriter, r *http.Request) {
@@ -105,4 +107,86 @@ func (handler *Handler) NewThread(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+}
+
+func (handler *Handler) AllThreadsFromForum(w http.ResponseWriter, r *http.Request) {
+	params := &models.ThreadParams{}
+	decoder := schema.NewDecoder()
+	decoder.IgnoreUnknownKeys(true)
+	if err := decoder.Decode(params, r.URL.Query()); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	slug := mux.Vars(r)["slug"]
+
+	items := []models.Thread{}
+
+	threadsQuery := `SELECT author,created,forum,id,message,slug,title,votes
+from threads where forum=$1 and created>=$2 order by created `
+	if params.Desc {
+		threadsQuery += `desc `
+	}
+	if params.Limit > 0 {
+		threadsQuery += `limit ` + strconv.Itoa(params.Limit)
+	}
+
+	err := handler.DB.Select(&items, threadsQuery, slug, params.Since)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("error with select already exsist user"))
+		return
+	}
+
+	if len(items) == 0 {
+		w.WriteHeader(http.StatusNotFound)
+		//if err := json.NewEncoder(w).Encode(map[string]string{"message": "not found this forum"}); err != nil {
+		//	w.WriteHeader(http.StatusInternalServerError)
+		//	return
+		//}
+		return
+	}
+
+	if err := json.NewEncoder(w).Encode(items); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+}
+
+func (handler *Handler) AllUsersForum(w http.ResponseWriter, r *http.Request) {
+	params := &models.ForumUserParams{}
+	decoder := schema.NewDecoder()
+	decoder.IgnoreUnknownKeys(true)
+	if err := decoder.Decode(params, r.URL.Query()); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	slug := mux.Vars(r)["slug"]
+
+	users := []models.User{}
+	//todo порядок сортировки побайтовое сравнение
+	userQuery := `SELECT distinct * FROM (select distinct about,email,fullname,nickname from threads 
+    join users u on threads.author = u.nickname where forum=$1
+	UNION 
+	SELECT DISTINCT about,email,fullname,nickname FROM posts 
+	    JOIN users u2 on posts.author = u2.nickname WHERE forum=$1) sub`
+	userQuery += ` where nickname>'` + params.Since + `' order by nickname `
+	if params.Desc {
+		userQuery += `desc`
+	}
+	if params.Limit > 0 {
+		userQuery += ` limit ` + strconv.Itoa(params.Limit)
+	}
+	err := handler.DB.Select(&users, userQuery, slug)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("error with select already exsist user"))
+		return
+	}
+	if len(users) == 0 {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	json.NewEncoder(w).Encode(users)
 }
