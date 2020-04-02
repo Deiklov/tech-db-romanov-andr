@@ -16,16 +16,30 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	handlers := handlers.Handler{db}
-	r.HandleFunc("/user/{nickname}/create", handlers.CreateUser).Methods(http.MethodPost)
-	r.HandleFunc("/user/{nickname}/profile", handlers.UpdateUser).Methods(http.MethodPost)
-	r.HandleFunc("/user/{nickname}/profile", handlers.GetUser).Methods(http.MethodGet)
+	Handlers := handlers.Handler{db}
+	r.HandleFunc("/user/{nickname}/create", Handlers.CreateUser).Methods(http.MethodPost)
+	r.HandleFunc("/user/{nickname}/profile", Handlers.UpdateUser).Methods(http.MethodPost)
+	r.HandleFunc("/user/{nickname}/profile", Handlers.GetUser).Methods(http.MethodGet)
 
-	r.HandleFunc("/forum/create", handlers.CreateForum).Methods(http.MethodPost)
-	r.HandleFunc("/forum/{slug}/details", handlers.ForumDetails).Methods(http.MethodGet)
-	r.HandleFunc("/forum/{slug}/create", handlers.NewThread).Methods(http.MethodPost)
-	r.HandleFunc("/forum/{slug}/threads", handlers.AllThreadsFromForum).Methods(http.MethodGet)
-	r.HandleFunc("/forum/{slug}/users", handlers.AllUsersForum).Methods(http.MethodGet)
+	r.HandleFunc("/forum/create", Handlers.CreateForum).Methods(http.MethodPost)
+	r.HandleFunc("/forum/{slug}/details", Handlers.ForumDetails).Methods(http.MethodGet)
+	r.HandleFunc("/forum/{slug}/create", Handlers.NewThread).Methods(http.MethodPost)
+	r.HandleFunc("/forum/{slug}/threads", Handlers.AllThreadsFromForum).Methods(http.MethodGet)
+	r.HandleFunc("/forum/{slug}/users", Handlers.AllUsersForum).Methods(http.MethodGet)
+
+	r.HandleFunc("/thread/{slug_or_id}/details", Handlers.ThreadInfo).Methods(http.MethodGet)
+	r.HandleFunc("/thread/{slug_or_id}/details", Handlers.ThreadUpdate).Methods(http.MethodPost)
+	r.HandleFunc("/thread/{slug_or_id}/vote", Handlers.ThreadVotes).Methods(http.MethodPost)
+
+	r.HandleFunc("/service/clear", Handlers.ServiceClear).Methods(http.MethodPost)
+	r.HandleFunc("/service/status", Handlers.ServiceInfo).Methods(http.MethodGet)
+
+	r.HandleFunc("/thread/{slug_or_id}/create", Handlers.CreatePost).Methods(http.MethodPost)
+	r.HandleFunc("/thread/{slug_or_id}/posts", Handlers.GetAllPosts).Methods(http.MethodGet)
+	r.HandleFunc("/post/{id}/details", Handlers.UpdatePost).Methods(http.MethodPost)
+	r.HandleFunc("/post/{id}/details", Handlers.GetPost).Methods(http.MethodGet)
 	http.Handle("/", r)
-	http.ListenAndServe(":5000", middleware.SetApplJson(r))
+	if err := http.ListenAndServe(":5000", middleware.SetApplJson(r)); err != nil {
+		log.Fatal(err)
+	}
 }
