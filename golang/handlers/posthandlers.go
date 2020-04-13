@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"../models"
+	"database/sql"
 	"encoding/json"
 	"github.com/gorilla/mux"
 	"github.com/lib/pq"
@@ -26,6 +27,7 @@ func (handler *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 	} else {
 		threadId = id
 	}
+
 	var forumSlug string
 	if err := handler.DB.Get(&forumSlug, `select forums.slug from forums
 		inner join threads t on forums.slug = t.forum
@@ -33,6 +35,7 @@ func (handler *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+
 	currTime := time.Now()
 	tx := handler.DB.MustBegin()
 	for _, v := range postResult {
@@ -65,17 +68,74 @@ func (handler *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			w.WriteHeader(http.StatusBadRequest)
+			return
 		}
 	}
+
 	if err := tx.Commit(); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	json.NewEncoder(w).Encode(postResult)
+	retPosts := []*models.Post{}
+	if err := handler.DB.
+		Select(&retPosts, `select * from posts where created=$1 order by id`, currTime); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(retPosts)
 	w.WriteHeader(http.StatusCreated)
 
 }
 func (handler *Handler) GetPost(w http.ResponseWriter, r *http.Request) {
+	stringID := mux.Vars(r)["id"]
+	postID, err := strconv.Atoi(stringID)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	related, ok := r.URL.Query()["related"]
+	retPost := models.Post{}
+	if !ok || len(related[0]) < 1 {
+		//нету параметров
+		if err := handler.DB.Get(&retPost, `select * from posts where id=$1`, postID); err != nil {
+			switch {
+			case err == sql.ErrNoRows:
+				w.WriteHeader(http.StatusNotFound)
+				return
+			default:
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		}
+		return
+	}
+
+	thread := models.Thread{}
+	forum := models.Forum{}
+	user := models.User{}
+
+	for _, v := range related {
+		switch v {
+		case "author":
+			if err := handler.DB.Get(&user, `select * from users where nickname=$1`, retPost.Author); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		case "forum":
+			if err := handler.DB.Get(&forum, `select * from forums where slug=$1`, retPost.Forum); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		case "thread":
+			if err := handler.DB.Get(&thread, `select * from threads where id=$1`, retPost.Thread); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		}
+	}
+	//var res []interface{}
+	//if thr
 
 }
 func (handler *Handler) UpdatePost(w http.ResponseWriter, r *http.Request) {

@@ -17,6 +17,7 @@ func main() {
 		log.Fatal(err)
 	}
 	Handlers := handlers.Handler{db}
+
 	r.HandleFunc("/user/{nickname}/create", Handlers.CreateUser).Methods(http.MethodPost)
 	r.HandleFunc("/user/{nickname}/profile", Handlers.UpdateUser).Methods(http.MethodPost)
 	r.HandleFunc("/user/{nickname}/profile", Handlers.GetUser).Methods(http.MethodGet)
