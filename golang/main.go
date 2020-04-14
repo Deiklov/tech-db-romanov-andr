@@ -10,13 +10,14 @@ import (
 )
 
 func main() {
-	r := mux.NewRouter()
+	router := mux.NewRouter()
 	connectionString := "dbname=homework user=andrey password=167839 host=localhost port=5432"
 	db, err := sqlx.Open("postgres", connectionString)
 	if err != nil {
 		log.Fatal(err)
 	}
 	Handlers := handlers.Handler{db}
+	r := router.PathPrefix("/api").Subrouter()
 
 	r.HandleFunc("/user/{nickname}/create", Handlers.CreateUser).Methods(http.MethodPost)
 	r.HandleFunc("/user/{nickname}/profile", Handlers.UpdateUser).Methods(http.MethodPost)
@@ -40,6 +41,7 @@ func main() {
 	r.HandleFunc("/post/{id}/details", Handlers.UpdatePost).Methods(http.MethodPost)
 	r.HandleFunc("/post/{id}/details", Handlers.GetPost).Methods(http.MethodGet)
 	http.Handle("/", r)
+
 	if err := http.ListenAndServe(":5000", middleware.SetApplJson(r)); err != nil {
 		log.Fatal(err)
 	}

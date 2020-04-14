@@ -10,7 +10,7 @@ import (
 	"strconv"
 )
 
-func (handler *Handler) CreateForum(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) CreateForum(w http.ResponseWriter, r *http.Request) {
 	newForum := &models.Forum{}
 	if err := json.NewDecoder(r.Body).Decode(newForum); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -19,7 +19,7 @@ func (handler *Handler) CreateForum(w http.ResponseWriter, r *http.Request) {
 	}
 	//чекаем есть ли юзер
 	queryUser := `select nickname from users where nickname=$1;`
-	row := handler.DB.QueryRow(queryUser, newForum.UserNick)
+	row := h.DB.QueryRow(queryUser, newForum.UserNick)
 	var nickname string
 	row.Scan(&nickname)
 	//если нет юзера, то кидаем 404
@@ -29,8 +29,8 @@ func (handler *Handler) CreateForum(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	//пытаемся инсертнуть
-	queryForum := `insert into forums (slug, title,user) values($1,$2,$3) returning slug;`
-	row = handler.DB.QueryRow(queryForum, newForum.Slug, newForum.Title, newForum.UserNick)
+	queryForum := `insert into forums (slug, title,"user") values($1,$2,$3) returning slug;`
+	row = h.DB.QueryRow(queryForum, newForum.Slug, newForum.Title, newForum.UserNick)
 	//сканим ответ
 	var backSlug string
 	err := row.Scan(&backSlug)
@@ -42,7 +42,7 @@ func (handler *Handler) CreateForum(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusConflict)
 			oldForum := &models.Forum{}
 			userInsertState := `SELECT * from forums where slug=$1;`
-			row := handler.DB.QueryRow(userInsertState, newForum.Slug)
+			row := h.DB.QueryRow(userInsertState, newForum.Slug)
 			row.Scan(&oldForum)
 			json.NewEncoder(w).Encode(oldForum)
 			return
@@ -57,10 +57,10 @@ func (handler *Handler) CreateForum(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(newForum)
 }
 
-func (handler *Handler) ForumDetails(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ForumDetails(w http.ResponseWriter, r *http.Request) {
 	slug := mux.Vars(r)["slug"]
 	queryForum := `select * from forums where slug=$1`
-	row := handler.DB.QueryRow(queryForum, slug)
+	row := h.DB.QueryRow(queryForum, slug)
 	foundForum := &models.Forum{}
 	err := row.Scan(&foundForum)
 	//можно проверить любое поле на пустоту
@@ -77,7 +77,7 @@ func (handler *Handler) ForumDetails(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (handler *Handler) NewThread(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) NewThread(w http.ResponseWriter, r *http.Request) {
 	slug := mux.Vars(r)["slug"]
 	//todo может ошибка выпрыгнуть при декодере
 	//todo slug может быть не задан
@@ -88,7 +88,7 @@ func (handler *Handler) NewThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	queryThreads := `insert into threads (author, forum, message, slug, title) values($1,$2,$3,$4,$5) returning id;`
-	row := handler.DB.QueryRow(queryThreads, newThrd.Author, newThrd.Forum, newThrd.Message, newThrd.Slug, newThrd.Title)
+	row := h.DB.QueryRow(queryThreads, newThrd.Author, newThrd.Forum, newThrd.Message, newThrd.Slug, newThrd.Title)
 	returningID := new(int)
 	if err := row.Scan(&returningID); err != nil {
 		if err, ok := err.(*pq.Error); ok {
@@ -109,7 +109,7 @@ func (handler *Handler) NewThread(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func (handler *Handler) AllThreadsFromForum(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) AllThreadsFromForum(w http.ResponseWriter, r *http.Request) {
 	params := &models.ThreadParams{}
 	decoder := schema.NewDecoder()
 	decoder.IgnoreUnknownKeys(true)
@@ -131,7 +131,7 @@ from threads where forum=$1 and created>=$2 order by created `
 		threadsQuery += `limit ` + strconv.Itoa(params.Limit)
 	}
 
-	err := handler.DB.Select(&items, threadsQuery, slug, params.Since)
+	err := h.DB.Select(&items, threadsQuery, slug, params.Since)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("error with select already exsist user"))
@@ -153,7 +153,7 @@ from threads where forum=$1 and created>=$2 order by created `
 	}
 }
 
-func (handler *Handler) AllUsersForum(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) AllUsersForum(w http.ResponseWriter, r *http.Request) {
 	params := &models.ForumUserParams{}
 	decoder := schema.NewDecoder()
 	decoder.IgnoreUnknownKeys(true)
@@ -178,7 +178,7 @@ func (handler *Handler) AllUsersForum(w http.ResponseWriter, r *http.Request) {
 	if params.Limit > 0 {
 		userQuery += ` limit ` + strconv.Itoa(params.Limit)
 	}
-	err := handler.DB.Select(&users, userQuery, slug)
+	err := h.DB.Select(&users, userQuery, slug)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("error with select already exsist user"))

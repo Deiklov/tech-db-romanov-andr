@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"../models"
+	"database/sql"
 	"encoding/json"
 	"github.com/gorilla/mux"
 	"github.com/jmoiron/sqlx"
@@ -13,7 +14,7 @@ type Handler struct {
 	DB *sqlx.DB
 }
 
-func (handler *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	newUserNickname := mux.Vars(r)["nickname"] //take user nickname
 	newUser := &models.User{}                  //form for user data
 	newUser.Nickname = newUserNickname
@@ -24,7 +25,7 @@ func (handler *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userInsertState := `insert into users (fullname, email, about, nickname) values ($1, $2, $3, $4) returning nickname;`
-	result := handler.DB.QueryRow(userInsertState, newUser.Fullname, newUser.Email, newUser.About, newUser.Nickname)
+	result := h.DB.QueryRow(userInsertState, newUser.Fullname, newUser.Email, newUser.About, newUser.Nickname)
 	var nickname string
 	err = result.Scan(&nickname)
 	if err, ok := err.(*pq.Error); ok {
@@ -33,22 +34,11 @@ func (handler *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		case "23505":
 			w.WriteHeader(http.StatusConflict)
 			items := []*models.User{}
-			userInsertState := `SELECT about,email,fullname,nickname from users where email=$1 or nickname=$2;`
-			rows, err := handler.DB.Query(userInsertState, newUser.Email, newUser.Nickname)
+			userInsertState := `SELECT about,email,fullname,nickname from users where lower(email)=lower($1) or lower(nickname)=lower($2);`
+			err := h.DB.Select(&items, userInsertState, newUser.Email, newUser.Nickname)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte("error with select already exsist user"))
 				return
-			}
-			defer rows.Close()
-			for rows.Next() {
-				oldUser := &models.User{}
-				err := rows.Scan(&oldUser.About, &oldUser.Email, &oldUser.Fullname, &oldUser.Nickname)
-				if err != nil {
-					w.WriteHeader(http.StatusInternalServerError)
-					return
-				}
-				items = append(items, oldUser)
 			}
 			//может вернуть несколько челиков(с одним почта совпала с другим логин)
 			json.NewEncoder(w).Encode(items)
@@ -64,7 +54,7 @@ func (handler *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(newUser)
 }
 
-func (handler *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	newUserNickname := mux.Vars(r)["nickname"] //take user nickname
 	newUser := &models.User{}                  //form for user data
 	newUser.Nickname = newUserNickname
@@ -74,10 +64,28 @@ func (handler *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"error": "Invalid json !"`))
 		return
 	}
-	userUpdateState := `UPDATE users SET  fullname= $1, email = $2, about = $3 WHERE nickname= $4;`
-	result, err := handler.DB.Exec(userUpdateState, newUser.Fullname, newUser.Email, newUser.About, newUser.Nickname)
+
+	userUpdateState := `update users set nickname='` + newUserNickname + `' `
+
+	if newUser.Fullname.Valid {
+		userUpdateState += ` ,fullname='` + newUser.Fullname.String + `'`
+	}
+	if newUser.Email.Valid {
+		userUpdateState += ` ,email='` + newUser.Email.String + `'`
+	}
+	if newUser.About.Valid {
+		userUpdateState += ` ,about='` + newUser.About.String + `' `
+	}
+	userUpdateState += ` where lower(nickname)= lower($1) returning *`
+	err = h.DB.Get(newUser, userUpdateState, newUser.Nickname)
 
 	//проверка на уникальность email and nickname
+	if err == sql.ErrNoRows {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"message": "Not found user with same nickname!"})
+		return
+	}
+
 	if err, ok := err.(*pq.Error); ok {
 		switch err.Code {
 		case "23505":
@@ -91,28 +99,24 @@ func (handler *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	//проверка на существование юзера
-	if rowsAffected, _ := result.RowsAffected(); rowsAffected < 1 && err == nil {
+	json.NewEncoder(w).Encode(newUser)
+}
+func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
+	userNickname := mux.Vars(r)["nickname"] //take user nickname
+	user := &models.User{}                  //form for user data
+	userQuery := `SELECT about,email,fullname,nickname from users where lower(nickname)=lower($1);`
+	err := h.DB.Get(user, userQuery, userNickname)
+
+	switch {
+	case err == sql.ErrNoRows:
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]string{"message": "Not found user with same nickname!"})
 		return
-	}
-
-	//отправим измененного юзера обратно
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(newUser)
-}
-func (handler *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
-	userNickname := mux.Vars(r)["nickname"] //take user nickname
-	user := &models.User{}                  //form for user data
-	userQuery := `SELECT about,email,fullname,nickname from users where nickname=$1;`
-	row := handler.DB.QueryRow(userQuery, userNickname)
-	err := row.Scan(&user.About, &user.Email, &user.Fullname, &user.Nickname)
-	if err != nil {
+	case err != nil:
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("error with scan"))
 		return
 	}
+
 	if user.Nickname == "" {
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]string{"message": "Not found user with same nickname!"})

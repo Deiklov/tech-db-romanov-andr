@@ -1,12 +1,16 @@
 package models
 
-import "time"
+import (
+	"gopkg.in/guregu/null.v3"
+	"gopkg.in/guregu/null.v3/zero"
+	"time"
+)
 
 type User struct {
-	About    string `json:"about"`
-	Email    string `json:"email"`
-	Fullname string `json:"fullname"`
-	Nickname string `json:"nickname"`
+	About    null.String `json:"about"`
+	Email    null.String `json:"email"`
+	Fullname null.String `json:"fullname"`
+	Nickname string      `json:"nickname"`
 }
 
 type Forum struct {
@@ -14,7 +18,7 @@ type Forum struct {
 	Slug     string `json:"slug"`
 	Threads  int    `json:"threads"`
 	Title    string `json:"title"`
-	UserNick string `json:"user"`
+	UserNick string `json:"user" db:"user"`
 }
 
 type Thread struct {
@@ -63,6 +67,17 @@ type Post struct {
 	Id       int       `json:"id" db:"id"`
 	IsEdited bool      `json:"isEdited" db:"isedited"`
 	Message  string    `json:"message" db:"message"`
-	Parent   int       `json:"parent" db:"parent"`
+	Parent   zero.Int  `json:"parent" db:"parent"`
 	Thread   int       `json:"thread" db:"thread"`
+}
+
+type PostUpdate struct {
+	Message string `json:"message" db:"message"`
+}
+
+type PostParams struct {
+	Limit int
+	Since int
+	Sort  string
+	Desc  bool
 }
