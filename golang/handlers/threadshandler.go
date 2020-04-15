@@ -5,61 +5,58 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/gorilla/mux"
+	"github.com/lib/pq"
 	"net/http"
 	"strconv"
 )
 
 func (h *Handler) ThreadInfo(w http.ResponseWriter, r *http.Request) {
-	slug := mux.Vars(r)["slug_or_id"]
 	thread := &models.Thread{}
-	queryThread := ""
-	id, err := strconv.Atoi(slug)
+	id, err := h.toID(r)
 	if err != nil {
-		queryThread = `SELECT * from threads where lower(slug)=lower($1)`
-		if err := h.DB.Get(thread, queryThread, slug); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-	} else {
-		queryThread = `SELECT * from threads where id=$1`
-		if err := h.DB.Get(thread, queryThread, id); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-	}
-
-	if thread.Id < 0 {
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]string{"message": "not found this threads"})
 		return
 	}
+
+	if err := h.DB.Get(thread, `SELECT * from threads where id=$1`, id); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
 	json.NewEncoder(w).Encode(thread)
 }
 
 func (h *Handler) ThreadUpdate(w http.ResponseWriter, r *http.Request) {
-	slug := mux.Vars(r)["slug_or_id"]
-	thread := &models.ThreadUpdate{}
-	threadResult := &models.Thread{}
-	json.NewDecoder(r.Body).Decode(&thread)
-	queryThread := ""
-	id, err := strconv.Atoi(slug)
-	queryThread = `update threads set`
-	if thread.Message != "" {
-		queryThread += ` message='` + thread.Message + `', `
-	}
-	if thread.Title != "" {
-		queryThread += ` title='` + thread.Title + `' where `
-	}
+	id, err := h.toID(r)
 	if err != nil {
-		queryThread += `lower(slug)=lower('` + slug + `')`
-	} else {
-		queryThread += `id=` + strconv.Itoa(id)
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"message": `not found this threads` + err.Error() + ``})
+		return
 	}
+	threadUPD := &models.ThreadUpdate{}
+	threadResult := &models.Thread{}
+	json.NewDecoder(r.Body).Decode(&threadUPD)
+
+	queryThread := `update threads set`
+	if threadUPD.Message != "" {
+		queryThread += ` message='` + threadUPD.Message + `', `
+	}
+	if threadUPD.Title != "" {
+		queryThread += ` title='` + threadUPD.Title + `' where `
+	}
+	queryThread += `id=` + strconv.Itoa(id)
+
+	if threadUPD.Message == "" && threadUPD.Title == "" {
+		h.DB.Get(threadResult, `select * from threads where id=$1`, id)
+		json.NewEncoder(w).Encode(threadResult)
+		return
+	}
+
 	queryThread += ` returning *;`
 	err = h.DB.Get(threadResult, queryThread)
 	if err != nil {
-		if threadResult.Id < 0 {
+		if threadResult.Id <= 0 {
 			w.WriteHeader(http.StatusNotFound)
 			json.NewEncoder(w).Encode(map[string]string{"message": "not found this threads"})
 			return
@@ -88,7 +85,6 @@ func (h *Handler) ThreadVotes(w http.ResponseWriter, r *http.Request) {
 		_, err := h.DB.Exec(
 			`update votes_info set votes=$1 where nickname=$2 and thread_id=$3`,
 			voice.Voice, votesInfo.Nickname, votesInfo.ThreadID)
-
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -112,9 +108,17 @@ func (h *Handler) ThreadVotes(w http.ResponseWriter, r *http.Request) {
 		_, err = h.DB.Exec(
 			`insert into votes_info (votes,thread_id,nickname) values ($1,$2,$3)`,
 			voice.Voice, threadID, voice.Nickname)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
+		if err, ok := err.(*pq.Error); ok {
+			switch err.Code {
+			//this is conflict code
+			case "23503":
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode(map[string]string{"message": "not found this user"})
+				return
+			default:
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 		}
 	}
 
@@ -127,6 +131,5 @@ func (h *Handler) ThreadVotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Println(threadResult.Votes)
 	json.NewEncoder(w).Encode(threadResult)
 }

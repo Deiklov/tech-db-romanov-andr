@@ -216,28 +216,33 @@ func (h *Handler) AllUsersForum(w http.ResponseWriter, r *http.Request) {
 
 	slug := mux.Vars(r)["slug"]
 
+	forumSlug := ""
+	err := h.DB.Get(&forumSlug, `select slug from forums where lower(slug)=lower($1)`, slug)
+	if err == sql.ErrNoRows {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"message": "not found"})
+		return
+	}
+
 	users := []models.User{}
-	//todo порядок сортировки побайтовое сравнение
-	userQuery := `SELECT distinct * FROM (select distinct about,email,fullname,nickname from threads 
+
+	userQuery := `SELECT * FROM (select distinct about,email,fullname,nickname from threads 
     join users u on lower(threads.author) = lower(u.nickname) where lower(forum)=lower($1)
 	UNION 
 	SELECT DISTINCT about,email,fullname,nickname FROM posts 
 	    JOIN users u2 on lower(posts.author) = lower(u2.nickname) WHERE lower(forum)=lower($1)) sub`
-	userQuery += ` where nickname>'` + strings.ToLower(params.Since) + `' order by nickname `
+	userQuery += ` where lower(nickname)>'` + strings.ToLower(params.Since) + `' order by lower(nickname) `
 	if params.Desc {
 		userQuery += `desc`
 	}
 	if params.Limit > 0 {
 		userQuery += ` limit ` + strconv.Itoa(params.Limit)
 	}
-	err := h.DB.Select(&users, userQuery, slug)
+	err = h.DB.Select(&users, userQuery, slug)
+
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("error with select already exsist user"))
-		return
-	}
-	if len(users) == 0 {
-		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 

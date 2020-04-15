@@ -10,6 +10,7 @@ import (
 	"github.com/pkg/errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -21,6 +22,7 @@ func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"message": "Can't find thread"})
 		return
 	}
 
@@ -31,6 +33,8 @@ func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+
+	var author string
 
 	currTime := time.Now().UTC()
 	tx := h.DB.MustBegin()
@@ -46,6 +50,20 @@ func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 		values (:author,:created,:forum,:message,:thread) returning *`
 		}
 
+		err = h.DB.Get(&author, `select nickname from users where lower(nickname)=lower($1)`, v.Author)
+		if err == sql.ErrNoRows {
+			tx.Rollback()
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"message": "Can't find user with that nickname"})
+			return
+		}
+		err = h.DB.Get(nil, `select id from threads where id=$1`, threadId)
+		if err == sql.ErrNoRows {
+			tx.Rollback()
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"message": "Can't find user with that nickname"})
+			return
+		}
 		if _, err := h.DB.NamedExec(queryPost, v); err != nil {
 			//откатим транзакцию
 			if err := tx.Rollback(); err != nil {
@@ -101,13 +119,15 @@ func (h *Handler) GetPost(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	related, _ := r.URL.Query()["related"]
+	paramsInString := r.URL.Query().Get("related")
+	related := strings.Split(paramsInString, ",")
 	retPost := models.Post{}
 	//нету параметров
 	if err := h.DB.Get(&retPost, `select * from posts where id=$1`, postID); err != nil {
 		switch {
 		case err == sql.ErrNoRows:
 			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"message": "Can't find user with that nickname"})
 			return
 		default:
 			w.WriteHeader(http.StatusInternalServerError)
@@ -121,7 +141,7 @@ func (h *Handler) GetPost(w http.ResponseWriter, r *http.Request) {
 
 	for _, v := range related {
 		switch v {
-		case "author":
+		case "user":
 			if err := h.DB.Get(&author, `select * from users where lower(nickname)=lower($1)`, retPost.Author); err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
@@ -176,6 +196,7 @@ func (h *Handler) UpdatePost(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case err == sql.ErrNoRows:
 			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"message": "Can't find user with that nickname"})
 			return
 		default:
 			w.WriteHeader(http.StatusInternalServerError)
@@ -184,6 +205,11 @@ func (h *Handler) UpdatePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	updatedPost := models.Post{}
+	//то же самое сообщение
+	if retPost.Message == newPostData.Message || newPostData.Message == "" {
+		json.NewEncoder(w).Encode(retPost)
+		return
+	}
 
 	err = h.DB.Get(&updatedPost, `update posts set message=$1, isedited=true where id=$2 returning *`, newPostData.Message, postID)
 	if err != nil {
