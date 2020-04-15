@@ -231,10 +231,18 @@ func (h *Handler) AllUsersForum(w http.ResponseWriter, r *http.Request) {
 	UNION 
 	SELECT DISTINCT about,email,fullname,nickname FROM posts 
 	    JOIN users u2 on lower(posts.author) = lower(u2.nickname) WHERE lower(forum)=lower($1)) sub`
-	userQuery += ` where lower(nickname)>'` + strings.ToLower(params.Since) + `' order by lower(nickname) `
+
 	if params.Desc {
-		userQuery += `desc`
+		if params.Since != "" {
+			userQuery += ` where lower(nickname)<'` + strings.ToLower(params.Since) + `' order by lower(nickname) desc `
+		} else {
+			userQuery += ` where lower(nickname)>'` + strings.ToLower(params.Since) + `' order by lower(nickname) desc `
+		}
+
+	} else {
+		userQuery += ` where lower(nickname)>'` + strings.ToLower(params.Since) + `' order by lower(nickname)  `
 	}
+
 	if params.Limit > 0 {
 		userQuery += ` limit ` + strconv.Itoa(params.Limit)
 	}

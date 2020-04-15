@@ -11,7 +11,7 @@ import (
 
 func main() {
 	router := mux.NewRouter()
-	connectionString := "dbname=homework user=andrey password=167839 host=localhost port=5432"
+	connectionString := "dbname=tmpxx user=andrey password=167839 host=localhost port=5432"
 	db, err := sqlx.Open("postgres", connectionString)
 	if err != nil {
 		log.Fatal(err)

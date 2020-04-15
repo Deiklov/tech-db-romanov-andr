@@ -123,4 +123,3 @@ create table if not exists votes_info
 );
 
 alter table votes_info owner to andrey;
-
