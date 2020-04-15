@@ -4,7 +4,6 @@ import (
 	"../models"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"github.com/lib/pq"
 	"net/http"
 	"strconv"
@@ -40,12 +39,15 @@ func (h *Handler) ThreadUpdate(w http.ResponseWriter, r *http.Request) {
 
 	queryThread := `update threads set`
 	if threadUPD.Message != "" {
-		queryThread += ` message='` + threadUPD.Message + `', `
+		queryThread += ` message='` + threadUPD.Message + `' `
 	}
 	if threadUPD.Title != "" {
-		queryThread += ` title='` + threadUPD.Title + `' where `
+		if threadUPD.Message != "" {
+			queryThread += `,`
+		}
+		queryThread += ` title='` + threadUPD.Title + `' `
 	}
-	queryThread += `id=` + strconv.Itoa(id)
+	queryThread += ` where id=` + strconv.Itoa(id)
 
 	if threadUPD.Message == "" && threadUPD.Title == "" {
 		h.DB.Get(threadResult, `select * from threads where id=$1`, id)
