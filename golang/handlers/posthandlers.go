@@ -45,9 +45,17 @@ func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 		if v.Parent.Int64 != 0 {
 			queryPost = `insert into posts(author,created,forum,message,parent,thread) 
 		values (:author,:created,:forum,:message,:parent,:thread)`
+			var parentID int
+			err = h.DB.Get(&parentID, `select id from posts where thread=$1 and id=$2`, threadId, v.Parent.Int64)
+			if err == sql.ErrNoRows {
+				w.WriteHeader(http.StatusConflict)
+				json.NewEncoder(w).Encode(map[string]string{"message": "parent doesn't exsist in this thread"})
+				return
+			}
 		} else {
 			queryPost = `insert into posts(author,created,forum,message,thread) 
 		values (:author,:created,:forum,:message,:thread) returning *`
+
 		}
 
 		err = h.DB.Get(&author, `select nickname from users where lower(nickname)=lower($1)`, v.Author)
@@ -57,13 +65,16 @@ func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"message": "Can't find user with that nickname"})
 			return
 		}
-		err = h.DB.Get(nil, `select id from threads where id=$1`, threadId)
+
+		var threadFromDB int
+		err = h.DB.Get(&threadFromDB, `select id from threads where id=$1`, threadId)
 		if err == sql.ErrNoRows {
 			tx.Rollback()
 			w.WriteHeader(http.StatusNotFound)
 			json.NewEncoder(w).Encode(map[string]string{"message": "Can't find user with that nickname"})
 			return
 		}
+
 		if _, err := h.DB.NamedExec(queryPost, v); err != nil {
 			//откатим транзакцию
 			if err := tx.Rollback(); err != nil {
