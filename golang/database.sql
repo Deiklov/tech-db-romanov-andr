@@ -123,3 +123,4 @@ create table if not exists votes_info
 );
 
 alter table votes_info owner to andrey;
+-- create database tmpXX with lc_collate='C.UTF-8' template=template0;
