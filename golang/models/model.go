@@ -22,14 +22,14 @@ type Forum struct {
 }
 
 type Thread struct {
-	Author  string    `json:"author" db:"author"`
-	Created time.Time `json:"created" db:"created"`
-	Forum   string    `json:"forum" db:"forum"`
-	Id      int       `json:"id" db:"id"`
-	Message string    `json:"message" db:"message"`
-	Slug    string    `json:"slug" db:"slug"`
-	Title   string    `json:"title" db:"title"`
-	Votes   int       `json:"votes" db:"votes"`
+	Author  string      `json:"author" db:"author"`
+	Created time.Time   `json:"created" db:"created"`
+	Forum   string      `json:"forum" db:"forum"`
+	Id      int         `json:"id" db:"id"`
+	Message string      `json:"message" db:"message"`
+	Slug    null.String `json:"slug,omitempty" db:"slug"`
+	Title   string      `json:"title" db:"title"`
+	Votes   int         `json:"votes" db:"votes"`
 }
 
 type ThreadParams struct {
@@ -80,4 +80,10 @@ type PostParams struct {
 	Since int
 	Sort  string
 	Desc  bool
+}
+
+type VotesInfo struct {
+	Votes    int    `db:"votes"`
+	ThreadID int    `db:"thread_id"`
+	Nickname string `db:"nickname"`
 }

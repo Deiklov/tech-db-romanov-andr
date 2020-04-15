@@ -2,12 +2,15 @@ package handlers
 
 import (
 	"../models"
+	"database/sql"
 	"encoding/json"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
 	"github.com/lib/pq"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 )
 
 func (h *Handler) CreateForum(w http.ResponseWriter, r *http.Request) {
@@ -17,33 +20,37 @@ func (h *Handler) CreateForum(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"error": "Invalid json !"}`))
 		return
 	}
+
 	//чекаем есть ли юзер
-	queryUser := `select nickname from users where nickname=$1;`
-	row := h.DB.QueryRow(queryUser, newForum.UserNick)
 	var nickname string
-	row.Scan(&nickname)
+	err := h.DB.Get(&nickname, `select nickname from users where lower(nickname)=lower($1);`, newForum.UserNick)
 	//если нет юзера, то кидаем 404
-	if nickname == "" {
+	if err == sql.ErrNoRows {
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]string{"message": "Can't find user with that nickname"})
 		return
 	}
-	//пытаемся инсертнуть
+
+	newForum.UserNick = nickname
+	backSlug := ""
+
 	queryForum := `insert into forums (slug, title,"user") values($1,$2,$3) returning slug;`
-	row = h.DB.QueryRow(queryForum, newForum.Slug, newForum.Title, newForum.UserNick)
-	//сканим ответ
-	var backSlug string
-	err := row.Scan(&backSlug)
-	//если ошибка при инсерте, то по ветке 409 идем
+	err = h.DB.Get(&backSlug, queryForum, newForum.Slug, newForum.Title, newForum.UserNick)
+
 	if err, ok := err.(*pq.Error); ok {
 		switch err.Code {
 		//this is conflict code
 		case "23505":
 			w.WriteHeader(http.StatusConflict)
 			oldForum := &models.Forum{}
-			userInsertState := `SELECT * from forums where slug=$1;`
-			row := h.DB.QueryRow(userInsertState, newForum.Slug)
-			row.Scan(&oldForum)
+
+			userInsertState := `SELECT * from forums where lower(slug)=lower($1);`
+			if err := h.DB.Get(oldForum, userInsertState, newForum.Slug); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("конфликт, не смог выбрать форум"))
+				return
+			}
+
 			json.NewEncoder(w).Encode(oldForum)
 			return
 		default:
@@ -52,24 +59,22 @@ func (h *Handler) CreateForum(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	//если все гуд то 201 долбанем
+
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(newForum)
 }
 
 func (h *Handler) ForumDetails(w http.ResponseWriter, r *http.Request) {
 	slug := mux.Vars(r)["slug"]
-	queryForum := `select * from forums where slug=$1`
-	row := h.DB.QueryRow(queryForum, slug)
 	foundForum := &models.Forum{}
-	err := row.Scan(&foundForum)
-	//можно проверить любое поле на пустоту
-	if foundForum.Slug == "" {
+	err := h.DB.Get(foundForum, `select * from forums where lower(slug)=lower($1)`, slug)
+
+	if err == sql.ErrNoRows {
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]string{"message": "Can't find forum with this slug"})
 		return
 	}
-	//если нашли его, то ретурним
+
 	if err == nil {
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(foundForum)
@@ -79,18 +84,42 @@ func (h *Handler) ForumDetails(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) NewThread(w http.ResponseWriter, r *http.Request) {
 	slug := mux.Vars(r)["slug"]
-	//todo может ошибка выпрыгнуть при декодере
-	//todo slug может быть не задан
-	newThrd := &models.Thread{Slug: slug}
+	forumDB := models.Forum{}
+	authorDB := models.User{}
+
+	newThrd := &models.Thread{}
 	if err := json.NewDecoder(r.Body).Decode(newThrd); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`{"error": "Invalid json !"}`))
 		return
 	}
-	queryThreads := `insert into threads (author, forum, message, slug, title) values($1,$2,$3,$4,$5) returning id;`
-	row := h.DB.QueryRow(queryThreads, newThrd.Author, newThrd.Forum, newThrd.Message, newThrd.Slug, newThrd.Title)
-	returningID := new(int)
-	if err := row.Scan(&returningID); err != nil {
+
+	err := h.DB.Get(&forumDB, `select * from forums where lower(slug)=lower($1)`, slug)
+	if err == sql.ErrNoRows {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"message": "not found forum for this slug"})
+		return
+	}
+
+	err = h.DB.Get(&authorDB, `select * from users where lower(nickname)=lower($1)`, newThrd.Author)
+
+	if err == sql.ErrNoRows {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"message": "not found  this author"})
+		return
+	}
+
+	newThrd.Author = authorDB.Nickname
+	newThrd.Forum = forumDB.Slug
+	newThrd.Created = newThrd.Created.UTC()
+	queryThreads := `insert into threads (author, forum, message, title,created) values($1,$2,$3,$4,$5) returning *;`
+	if newThrd.Slug.Valid {
+		queryThreads = `insert into threads (author, forum, message, title,created,slug) values($1,$2,$3,$4,$5,'` +
+			newThrd.Slug.String + `') returning *;`
+	}
+	err = h.DB.Get(newThrd, queryThreads, newThrd.Author, newThrd.Forum, newThrd.Message, newThrd.Title, newThrd.Created)
+
+	if err != nil {
 		if err, ok := err.(*pq.Error); ok {
 			switch err.Code {
 			//не вставит если нет юзера или форума
@@ -98,7 +127,12 @@ func (h *Handler) NewThread(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusNotFound)
 				json.NewEncoder(w).Encode(map[string]string{"message": "not exsist that user or forum"})
 				return
-				//если хрен знает какая ошибка
+			case "23505":
+				w.WriteHeader(http.StatusConflict)
+				exsistThread := models.Thread{}
+				h.DB.Get(&exsistThread, `select * from threads where lower(slug)=lower($1)`, newThrd.Slug.String)
+				json.NewEncoder(w).Encode(exsistThread)
+				return
 			default:
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte("Some error with data querys!"))
@@ -107,6 +141,8 @@ func (h *Handler) NewThread(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(newThrd)
 }
 
 func (h *Handler) AllThreadsFromForum(w http.ResponseWriter, r *http.Request) {
@@ -121,32 +157,48 @@ func (h *Handler) AllThreadsFromForum(w http.ResponseWriter, r *http.Request) {
 	slug := mux.Vars(r)["slug"]
 
 	items := []models.Thread{}
+	params.Since = params.Since.UTC()
+
+	forumSlugFromDB := ""
+	err := h.DB.Get(&forumSlugFromDB, `select slug from forums where lower(slug)=lower($1)`, slug)
+	if err == sql.ErrNoRows {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"message": "not found"})
+		return
+	}
 
 	threadsQuery := `SELECT author,created,forum,id,message,slug,title,votes
-from threads where forum=$1 and created>=$2 order by created `
+from threads where lower(forum)=lower($1) `
+
 	if params.Desc {
-		threadsQuery += `desc `
+		zeroTime := time.Time{}
+		//если не указали время то при деск created нужен только для соответствия call(2 args)
+		if params.Since == zeroTime {
+			threadsQuery += ` and created >=$2 order by created desc `
+		} else {
+			threadsQuery += ` and created <=$2 order by created desc `
+		}
+
+	} else {
+		threadsQuery += ` and created >=$2 order by created `
 	}
+
 	if params.Limit > 0 {
 		threadsQuery += `limit ` + strconv.Itoa(params.Limit)
 	}
 
-	err := h.DB.Select(&items, threadsQuery, slug, params.Since)
+	err = h.DB.Select(&items, threadsQuery, slug, params.Since)
+
+	if err == sql.ErrNoRows {
+		json.NewEncoder(w).Encode(items)
+		return
+	}
+
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("error with select already exsist user"))
+		w.Write([]byte(err.Error()))
 		return
 	}
-
-	if len(items) == 0 {
-		w.WriteHeader(http.StatusNotFound)
-		//if err := json.NewEncoder(w).Encode(map[string]string{"message": "not found this forum"}); err != nil {
-		//	w.WriteHeader(http.StatusInternalServerError)
-		//	return
-		//}
-		return
-	}
-
 	if err := json.NewEncoder(w).Encode(items); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -167,11 +219,11 @@ func (h *Handler) AllUsersForum(w http.ResponseWriter, r *http.Request) {
 	users := []models.User{}
 	//todo порядок сортировки побайтовое сравнение
 	userQuery := `SELECT distinct * FROM (select distinct about,email,fullname,nickname from threads 
-    join users u on threads.author = u.nickname where forum=$1
+    join users u on lower(threads.author) = lower(u.nickname) where lower(forum)=lower($1)
 	UNION 
 	SELECT DISTINCT about,email,fullname,nickname FROM posts 
-	    JOIN users u2 on posts.author = u2.nickname WHERE forum=$1) sub`
-	userQuery += ` where nickname>'` + params.Since + `' order by nickname `
+	    JOIN users u2 on lower(posts.author) = lower(u2.nickname) WHERE lower(forum)=lower($1)) sub`
+	userQuery += ` where nickname>'` + strings.ToLower(params.Since) + `' order by nickname `
 	if params.Desc {
 		userQuery += `desc`
 	}
@@ -188,5 +240,6 @@ func (h *Handler) AllUsersForum(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
+
 	json.NewEncoder(w).Encode(users)
 }

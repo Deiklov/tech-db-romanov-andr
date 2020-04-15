@@ -18,22 +18,11 @@ func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&postResult)
 	var queryPost string
 	threadId, err := h.toID(r)
+
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	//slugOrID := mux.Vars(r)["slug_or_id"]
-	//threadId := -1
-	//id, err := strconv.Atoi(slugOrID)
-	//if err != nil {
-	//	slug := slugOrID
-	//	if err := h.DB.Get(&threadId, "select id from threads where slug=$1 limit 1", slug); err != nil {
-	//		w.WriteHeader(http.StatusNotFound)
-	//		return
-	//	}
-	//} else {
-	//	threadId = id
-	//}
 
 	var forumSlug string
 	if err := h.DB.Get(&forumSlug, `select forums.slug from forums
@@ -43,7 +32,7 @@ func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	currTime := time.Now()
+	currTime := time.Now().UTC()
 	tx := h.DB.MustBegin()
 	for _, v := range postResult {
 		v.Created = currTime
@@ -56,7 +45,7 @@ func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 			queryPost = `insert into posts(author,created,forum,message,thread) 
 		values (:author,:created,:forum,:message,:thread) returning *`
 		}
-		//todo возвращет то что идет на вход, а нужно брать то что в бд создается
+
 		if _, err := h.DB.NamedExec(queryPost, v); err != nil {
 			//откатим транзакцию
 			if err := tx.Rollback(); err != nil {
@@ -83,16 +72,26 @@ func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+
 	retPosts := []*models.Post{}
 	//todo error null to int
-	if err := h.DB.
-		Select(&retPosts, `select * from posts where created=$1 order by id`, currTime); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+	err = h.DB.
+		Select(&retPosts, `select * from posts where created=$1 order by id`, currTime)
+
+	if err == sql.ErrNoRows {
+		json.NewEncoder(w).Encode(retPosts)
+		w.WriteHeader(http.StatusCreated)
 		return
 	}
 
-	json.NewEncoder(w).Encode(retPosts)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+
 	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(retPosts)
 
 }
 func (h *Handler) GetPost(w http.ResponseWriter, r *http.Request) {
@@ -123,12 +122,12 @@ func (h *Handler) GetPost(w http.ResponseWriter, r *http.Request) {
 	for _, v := range related {
 		switch v {
 		case "author":
-			if err := h.DB.Get(&author, `select * from users where nickname=$1`, retPost.Author); err != nil {
+			if err := h.DB.Get(&author, `select * from users where lower(nickname)=lower($1)`, retPost.Author); err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
 		case "forum":
-			if err := h.DB.Get(&forum, `select * from forums where slug=$1`, retPost.Forum); err != nil {
+			if err := h.DB.Get(&forum, `select * from forums where lower(slug)=lower($1)`, retPost.Forum); err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
@@ -224,6 +223,7 @@ func (h *Handler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 	} else {
 		query += ` order by created `
 	}
+	query += ` ,id `
 
 	if params.Limit > 0 {
 		query += ` limit ` + strconv.Itoa(params.Limit)
@@ -247,7 +247,7 @@ func (h *Handler) toID(r *http.Request) (int, error) {
 	id, err := strconv.Atoi(slugOrID)
 	if err != nil {
 		slug := slugOrID
-		if err := h.DB.Get(&threadId, "select id from threads where slug=$1 limit 1", slug); err != nil {
+		if err := h.DB.Get(&threadId, "select id from threads where lower(slug)=lower($1) limit 1", slug); err != nil {
 			return -1, errors.New("not found")
 		}
 	} else {
