@@ -268,10 +268,79 @@ func (h *Handler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 
 	switch params.Sort {
 	case "tree":
+		rootPostList := []models.Post{}
+		resultPostList := []models.Post{}
+		query := `select * from posts where thread=$1 and parent is null order by id `
+
+		if params.Desc {
+			query += ` desc`
+		}
+
+		err = h.DB.Select(&rootPostList, query, id)
+
+		for _, v := range rootPostList {
+			resultPostList = append(resultPostList, v)
+			resultPostList = append(resultPostList, h.getPosts(v.Id, id)...)
+		}
+
+		res := []models.Post{}
+
+		if params.Since > 0 {
+			for i, v := range resultPostList {
+				if v.Id == params.Since {
+					res = append(res, resultPostList[i+1:len(resultPostList)]...)
+					break
+				}
+			}
+			resultPostList = res
+		}
+
+		if params.Limit > 0 {
+			if len(resultPostList) > params.Limit {
+				resultPostList = resultPostList[:params.Limit]
+			}
+		}
+
+		json.NewEncoder(w).Encode(resultPostList)
+		return
 	case "parent_tree":
+		rootPostList := []models.Post{}
+		resultPostList := []models.Post{}
+		query := `select * from posts where thread=$1 and parent is null order by id `
+
+		if params.Desc {
+			query += ` desc`
+		}
+
+		err = h.DB.Select(&rootPostList, query, id)
+		//todo не будет работать при since
+		if params.Limit > 0 {
+			if params.Limit < len(rootPostList) {
+				rootPostList = rootPostList[:params.Limit]
+			}
+		}
+
+		for _, v := range rootPostList {
+			resultPostList = append(resultPostList, v)
+			resultPostList = append(resultPostList, h.getPosts(v.Id, id)...)
+		}
+
+		res := []models.Post{}
+
+		if params.Since > 0 {
+			for i, v := range resultPostList {
+				if v.Id == params.Since {
+					res = append(res, resultPostList[i+1:len(resultPostList)]...)
+					break
+				}
+			}
+			resultPostList = res
+		}
+
+		json.NewEncoder(w).Encode(resultPostList)
+		return
 	default:
 	}
-	//todo sort флаг не учитывается
 	err = h.DB.Select(&postList, query, id)
 
 	json.NewEncoder(w).Encode(postList)
@@ -296,4 +365,25 @@ func (h *Handler) toID(r *http.Request) (int, error) {
 		return -1, errors.New("not found")
 	}
 	return threadId, nil
+}
+func (h *Handler) getPosts(parentID int, threadID int) []models.Post {
+	postData := []models.Post{}
+	err := h.DB.Select(&postData,
+		`select * from posts where thread=$1 and parent=$2 order by id`,
+		threadID, parentID)
+	if err != nil {
+		return nil
+	}
+
+	resultPostData := []models.Post{}
+
+	if len(postData) == 0 {
+		return postData
+	} else {
+		for _, v := range postData {
+			resultPostData = append(resultPostData, v)
+			resultPostData = append(resultPostData, h.getPosts(v.Id, threadID)...)
+		}
+		return resultPostData
+	}
 }
