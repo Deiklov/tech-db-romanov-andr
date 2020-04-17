@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"../models"
 	"database/sql"
 	"encoding/json"
+	"github.com/Deiklov/tech-db-romanov-andr/golang/models"
 	"github.com/lib/pq"
 	"net/http"
 	"strconv"

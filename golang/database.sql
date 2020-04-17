@@ -8,7 +8,7 @@ create table if not exists users
             primary key
 );
 
-alter table users owner to andrey;
+alter table users owner to docker;
 
 create unique index if not exists users_nickname_uindex
     on users (nickname);
@@ -35,7 +35,7 @@ create table if not exists forums
             references users (nickname)
 );
 
-alter table forums owner to andrey;
+alter table forums owner to docker;
 
 create unique index if not exists forums_slug_uindex
     on forums (slug);
@@ -62,7 +62,7 @@ create table if not exists threads
     votes integer default 0 not null
 );
 
-alter table threads owner to andrey;
+alter table threads owner to docker;
 
 create unique index if not exists threads_id_uindex
     on threads (id);
@@ -101,7 +101,7 @@ create table if not exists posts
             on update cascade on delete cascade
 );
 
-alter table posts owner to andrey;
+alter table posts owner to docker;
 
 create trigger inc_posts
     after insert
@@ -122,5 +122,26 @@ create table if not exists votes_info
             on update cascade on delete cascade
 );
 
-alter table votes_info owner to andrey;
+alter table votes_info owner to docker;
+
+create function inc_params() returns trigger
+    language plpgsql
+as
+$$
+declare
+    forum_slug text;
+begin
+    forum_slug = new.forum;
+    if tg_name = 'inc_threads' then
+        update forums set threads=threads + 1 where slug = forum_slug;
+    elsif tg_name = 'inc_posts' then
+        update forums set posts=posts + 1 where slug = forum_slug;
+    end if;
+    return new;
+end;
+$$;
+
+alter function inc_params() owner to docker;
+
+
 -- create database tmpXX with lc_collate='C.UTF-8' template=template0;

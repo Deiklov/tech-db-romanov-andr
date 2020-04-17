@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"../models"
 	"encoding/json"
+	"github.com/Deiklov/tech-db-romanov-andr/golang/models"
 	"net/http"
 )
 
