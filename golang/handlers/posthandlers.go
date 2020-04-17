@@ -236,6 +236,7 @@ func (h *Handler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 	id, err := h.toID(r)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"message": "Can't find this thread"})
 		return
 	}
 
@@ -252,15 +253,18 @@ func (h *Handler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 	query := `select * from posts where thread=$1 `
 
 	if params.Since > 0 {
-		query += ` and id>` + strconv.Itoa(params.Since)
+		if params.Desc {
+			query += ` and id<` + strconv.Itoa(params.Since)
+		} else {
+			query += ` and id>` + strconv.Itoa(params.Since)
+		}
 	}
 
 	if params.Desc {
-		query += ` order by created desc `
+		query += ` order by created desc, id desc `
 	} else {
-		query += ` order by created `
+		query += ` order by created, id `
 	}
-	query += ` ,id `
 
 	if params.Limit > 0 {
 		query += ` limit ` + strconv.Itoa(params.Limit)
@@ -270,6 +274,7 @@ func (h *Handler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 	case "tree":
 		rootPostList := []models.Post{}
 		resultPostList := []models.Post{}
+		//shadow var query
 		query := `select * from posts where thread=$1 and parent is null order by id `
 
 		if params.Desc {
@@ -279,8 +284,13 @@ func (h *Handler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 		err = h.DB.Select(&rootPostList, query, id)
 
 		for _, v := range rootPostList {
-			resultPostList = append(resultPostList, v)
-			resultPostList = append(resultPostList, h.getPosts(v.Id, id)...)
+			if !params.Desc {
+				resultPostList = append(resultPostList, v)
+			}
+			resultPostList = append(resultPostList, h.getPosts(v.Id, id, params.Desc)...)
+			if params.Desc {
+				resultPostList = append(resultPostList, v)
+			}
 		}
 
 		res := []models.Post{}
@@ -306,6 +316,7 @@ func (h *Handler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 	case "parent_tree":
 		rootPostList := []models.Post{}
 		resultPostList := []models.Post{}
+		//shadow var query
 		query := `select * from posts where thread=$1 and parent is null order by id `
 
 		if params.Desc {
@@ -315,14 +326,17 @@ func (h *Handler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 		err = h.DB.Select(&rootPostList, query, id)
 		//todo не будет работать при since
 		if params.Limit > 0 {
-			if params.Limit < len(rootPostList) {
-				rootPostList = rootPostList[:params.Limit]
+			if params.Since == 0 {
+				if params.Limit < len(rootPostList) {
+					rootPostList = rootPostList[:params.Limit]
+				}
 			}
 		}
 
 		for _, v := range rootPostList {
 			resultPostList = append(resultPostList, v)
-			resultPostList = append(resultPostList, h.getPosts(v.Id, id)...)
+			resultPostList = append(resultPostList, h.getPosts(v.Id, id, false)...)
+
 		}
 
 		res := []models.Post{}
@@ -366,11 +380,13 @@ func (h *Handler) toID(r *http.Request) (int, error) {
 	}
 	return threadId, nil
 }
-func (h *Handler) getPosts(parentID int, threadID int) []models.Post {
+func (h *Handler) getPosts(parentID int, threadID int, desc bool) []models.Post {
 	postData := []models.Post{}
-	err := h.DB.Select(&postData,
-		`select * from posts where thread=$1 and parent=$2 order by id`,
-		threadID, parentID)
+	query := `select * from posts where thread=$1 and parent=$2 order by id`
+	if desc {
+		query += ` desc`
+	}
+	err := h.DB.Select(&postData, query, threadID, parentID)
 	if err != nil {
 		return nil
 	}
@@ -381,8 +397,16 @@ func (h *Handler) getPosts(parentID int, threadID int) []models.Post {
 		return postData
 	} else {
 		for _, v := range postData {
-			resultPostData = append(resultPostData, v)
-			resultPostData = append(resultPostData, h.getPosts(v.Id, threadID)...)
+
+			if !desc {
+				resultPostData = append(resultPostData, v)
+			}
+			resultPostData = append(resultPostData, h.getPosts(v.Id, threadID, desc)...)
+
+			if desc {
+				resultPostData = append(resultPostData, v)
+			}
+
 		}
 		return resultPostData
 	}
