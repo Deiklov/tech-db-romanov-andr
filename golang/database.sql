@@ -61,6 +61,24 @@ create table if not exists threads
     title text not null,
     votes integer default 0 not null
 );
+create function inc_params() returns trigger
+    language plpgsql
+as
+$$
+declare
+    forum_slug text;
+begin
+    forum_slug = new.forum;
+    if tg_name = 'inc_threads' then
+        update forums set threads=threads + 1 where slug = forum_slug;
+    elsif tg_name = 'inc_posts' then
+        update forums set posts=posts + 1 where slug = forum_slug;
+    end if;
+    return new;
+end;
+$$;
+
+alter function inc_params() owner to docker;
 
 alter table threads owner to andrey;
 
@@ -69,12 +87,6 @@ create unique index if not exists threads_id_uindex
 
 create unique index if not exists threads_slug_uindex
     on threads (lower(slug));
-
-create trigger inc_threads
-    after insert
-    on threads
-    for each row
-execute procedure inc_params();
 
 create table if not exists posts
 (
@@ -122,5 +134,19 @@ create table if not exists votes_info
             on update cascade on delete cascade
 );
 
+<<<<<<< Updated upstream
 alter table votes_info owner to andrey;
+=======
+alter table votes_info owner to docker;
+
+create trigger inc_threads
+    after insert
+    on threads
+    for each row
+execute procedure inc_params();
+
+
+
+
+>>>>>>> Stashed changes
 -- create database tmpXX with lc_collate='C.UTF-8' template=template0;
