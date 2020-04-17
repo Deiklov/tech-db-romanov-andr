@@ -6,7 +6,6 @@ ADD golang/ /opt/build/golang/
 
 # Собираем генераторы
 WORKDIR /opt/build/golang
-RUN go get
 RUN go build main.go
 
 FROM ubuntu:18.04
@@ -53,6 +52,7 @@ RUN apt-get install -y git
 COPY --from=build /opt/build/golang/main /usr/bin/
 EXPOSE 5000
 
+WORKDIR /opt/build/golang
 # Запускаем PostgreSQL и сервер
 #
-CMD service postgresql start && ./main &
+CMD service postgresql start && /usr/bin/main
