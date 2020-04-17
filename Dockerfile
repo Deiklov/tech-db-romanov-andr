@@ -1,3 +1,14 @@
+
+FROM golang:1.14-stretch AS build
+
+# Копируем исходный код в Docker-контейнер
+ADD golang/ /opt/build/golang/
+
+# Собираем генераторы
+WORKDIR /opt/build/golang
+RUN go get
+RUN go build main.go
+
 FROM ubuntu:18.04
 
 MAINTAINER Andrey Romanov
@@ -5,9 +16,6 @@ MAINTAINER Andrey Romanov
 # Обвновление списка пакетов
 RUN apt-get -y update
 
-#
-# Установка postgresql
-#
 ENV PGVER 10
 RUN apt-get install -y postgresql-$PGVER
 
@@ -37,20 +45,14 @@ VOLUME  ["/etc/postgresql", "/var/log/postgresql", "/var/lib/postgresql"]
 # Back to the root user
 USER root
 
-#
-# Сборка проекта
-#
-
 # Установка golang
 RUN apt-get install -y git
 
-ADD golang/ /opt/build/golang/
 
 # Собираем генераторы
-WORKDIR /opt/build/golang
-
+COPY --from=build /opt/build/golang/main /usr/bin/
 EXPOSE 5000
+
 # Запускаем PostgreSQL и сервер
 #
-CMD service postgresql start && ./main
->>>>>>> Stashed changes
+CMD service postgresql start && ./main &

@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"../models"
 	"database/sql"
 	"encoding/json"
+	"github.com/Deiklov/tech-db-romanov-andr/golang/models"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
 	"github.com/lib/pq"

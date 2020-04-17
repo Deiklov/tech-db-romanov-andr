@@ -1,8 +1,8 @@
 package main
 
 import (
-	"./handlers"
-	"./middleware"
+	"github.com/Deiklov/tech-db-romanov-andr/golang/handlers"
+	"github.com/Deiklov/tech-db-romanov-andr/golang/middleware"
 	"github.com/gorilla/mux"
 	"github.com/jmoiron/sqlx"
 	"log"
