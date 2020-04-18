@@ -80,52 +80,27 @@ func (h *Handler) ThreadVotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	votesInfo := models.VotesInfo{}
+	var voiceBool bool
+	if voice.Voice == 1 {
+		voiceBool = true
+	}
 
-	err = h.DB.Get(&votesInfo, `select * from votes_info where nickname=$1 and thread_id=$2`, voice.Nickname, threadID)
-	if err == nil {
-		_, err := h.DB.Exec(
-			`update votes_info set votes=$1 where nickname=$2 and thread_id=$3`,
-			voice.Voice, votesInfo.Nickname, votesInfo.ThreadID)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
+	query := `insert into votes_info(votes, thread_id, nickname)
+VALUES ($1, $2, $3)
+on conflict on constraint only_one_voice do update set votes=excluded.votes
+ returning *`
+
+	_, err = h.DB.Exec(query, voiceBool, threadID, voice.Nickname)
+	if err, ok := err.(*pq.Error); ok {
+		switch err.Code {
+		case "23502":
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"message": "Can't find user with that nickname"})
 			return
-		}
-
-		switch votesInfo.Votes {
-		case 1:
-			if voice.Voice == 1 {
-				voice.Voice = 0
-			} else {
-				voice.Voice = -2
-			}
-		case -1:
-			if voice.Voice == -1 {
-				voice.Voice = 0
-			} else {
-				voice.Voice = 2
-			}
-		}
-	} else {
-		_, err = h.DB.Exec(
-			`insert into votes_info (votes,thread_id,nickname) values ($1,$2,$3)`,
-			voice.Voice, threadID, voice.Nickname)
-		if err, ok := err.(*pq.Error); ok {
-			switch err.Code {
-			//this is conflict code
-			case "23503":
-				w.WriteHeader(http.StatusNotFound)
-				json.NewEncoder(w).Encode(map[string]string{"message": "not found this user"})
-				return
-			default:
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
 		}
 	}
 
-	err = h.DB.Get(threadResult,
-		`update threads set votes=votes+($1) where id=$2 returning *`, voice.Voice, threadID)
+	err = h.DB.Get(threadResult, `select * from threads where id=$1`, threadID)
 
 	if err == sql.ErrNoRows {
 		w.WriteHeader(http.StatusNotFound)

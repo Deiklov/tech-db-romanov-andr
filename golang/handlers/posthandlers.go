@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"github.com/Deiklov/tech-db-romanov-andr/golang/models"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
@@ -17,7 +18,6 @@ import (
 func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 	postResult := []*models.Post{}
 	json.NewDecoder(r.Body).Decode(&postResult)
-	var queryPost string
 	threadId, err := h.toID(r)
 
 	if err != nil {
@@ -34,76 +34,29 @@ func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var author string
-
 	currTime := time.Now().UTC()
-	tx := h.DB.MustBegin()
-	for _, v := range postResult {
-		v.Created = currTime
-		v.Thread = threadId
-		v.Forum = forumSlug
-		if v.Parent.Int64 != 0 {
-			queryPost = `insert into posts(author,created,forum,message,parent,thread) 
-		values (:author,:created,:forum,:message,:parent,:thread)`
-			var parentID int
-			err = h.DB.Get(&parentID, `select id from posts where thread=$1 and id=$2`, threadId, v.Parent.Int64)
-			if err == sql.ErrNoRows {
+	err = h.bulkInsert(postResult, forumSlug, threadId, currTime)
+
+	if err != nil {
+		if err, ok := err.(*pq.Error); ok {
+			switch err.Message {
+			case "invalid parent id":
 				w.WriteHeader(http.StatusConflict)
 				json.NewEncoder(w).Encode(map[string]string{"message": "parent doesn't exsist in this thread"})
 				return
-			}
-		} else {
-			queryPost = `insert into posts(author,created,forum,message,thread) 
-		values (:author,:created,:forum,:message,:thread) returning *`
-
-		}
-
-		err = h.DB.Get(&author, `select nickname from users where lower(nickname)=lower($1)`, v.Author)
-		if err == sql.ErrNoRows {
-			tx.Rollback()
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]string{"message": "Can't find user with that nickname"})
-			return
-		}
-
-		var threadFromDB int
-		err = h.DB.Get(&threadFromDB, `select id from threads where id=$1`, threadId)
-		if err == sql.ErrNoRows {
-			tx.Rollback()
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]string{"message": "Can't find user with that nickname"})
-			return
-		}
-
-		if _, err := h.DB.NamedExec(queryPost, v); err != nil {
-			//откатим транзакцию
-			if err := tx.Rollback(); err != nil {
+			case "not found author":
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode(map[string]string{"message": "author doesn't exsist"})
+				return
+			default:
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
-			//вернем 409 код
-			if err, ok := err.(*pq.Error); ok {
-				switch err.Code {
-				case "23503":
-					w.WriteHeader(http.StatusConflict)
-					return
-				default:
-					w.WriteHeader(http.StatusInternalServerError)
-					return
-				}
-			}
-			w.WriteHeader(http.StatusBadRequest)
-			return
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
 	retPosts := []*models.Post{}
-	//todo error null to int
+	//todo maybe insert in other order
 	err = h.DB.
 		Select(&retPosts, `select * from posts where created=$1 order by id`, currTime)
 
@@ -410,4 +363,29 @@ func (h *Handler) getPosts(parentID int, threadID int, desc bool) []models.Post 
 		}
 		return resultPostData
 	}
+}
+func (h *Handler) bulkInsert(unsavedRows []*models.Post, slug string, threadID int, created time.Time) error {
+	valueStrings := make([]string, 0, len(unsavedRows))
+	if cap(valueStrings) == 0 {
+		return nil
+	}
+	valueArgs := make([]interface{}, 0, len(unsavedRows)*6)
+	i := 0
+	for _, post := range unsavedRows {
+		valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d)", i*6+1, i*6+2, i*6+3, i*6+4, i*6+5, i*6+6))
+		valueArgs = append(valueArgs, post.Author)
+		valueArgs = append(valueArgs, created)
+		valueArgs = append(valueArgs, slug)
+		valueArgs = append(valueArgs, post.Message)
+		if post.Parent.Int64 != 0 {
+			valueArgs = append(valueArgs, post.Parent)
+		} else {
+			valueArgs = append(valueArgs, sql.NullString{})
+		}
+		valueArgs = append(valueArgs, threadID)
+		i++
+	}
+	stmt := fmt.Sprintf("insert into posts(author,created,forum,message,parent,thread) VALUES %s", strings.Join(valueStrings, ","))
+	_, err := h.DB.Exec(stmt, valueArgs...)
+	return err
 }
