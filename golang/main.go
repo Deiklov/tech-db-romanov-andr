@@ -11,15 +11,15 @@ import (
 
 func main() {
 	router := mux.NewRouter()
-	connectionString := "dbname=docker user=docker password=docker host=0.0.0.0 port=5432"
-	//connectionString := "dbname=tmpxx user=andrey password=167839 host=localhost port=5432"
+	//connectionString := "dbname=docker user=docker password=docker host=0.0.0.0 port=5432"
+	connectionString := "dbname=tmpxx user=andrey password=167839 host=localhost port=5432"
 	db, err := sqlx.Open("postgres", connectionString)
 
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	createDB(db)
+	//createDB(db)
 
 	Handlers := handlers.Handler{db}
 	r := router.PathPrefix("/api").Subrouter()

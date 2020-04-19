@@ -7,6 +7,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
 	"github.com/lib/pq"
+	"github.com/mailru/easyjson"
 	"net/http"
 	"strconv"
 	"strings"
@@ -15,15 +16,14 @@ import (
 
 func (h *Handler) CreateForum(w http.ResponseWriter, r *http.Request) {
 	newForum := &models.Forum{}
-	if err := json.NewDecoder(r.Body).Decode(newForum); err != nil {
+	if err := easyjson.UnmarshalFromReader(r.Body, newForum); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "Invalid json !"}`))
 		return
 	}
 
 	//чекаем есть ли юзер
 	var nickname string
-	err := h.DB.Get(&nickname, `select nickname from users where lower(nickname)=lower($1);`, newForum.UserNick)
+	err := h.DB.QueryRow(`select nickname from users where lower(nickname)=lower($1);`, newForum.UserNick).Scan(&nickname)
 	//если нет юзера, то кидаем 404
 	if err == sql.ErrNoRows {
 		w.WriteHeader(http.StatusNotFound)
@@ -51,7 +51,10 @@ func (h *Handler) CreateForum(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			json.NewEncoder(w).Encode(oldForum)
+			if _, _, err := easyjson.MarshalToHTTPResponseWriter(oldForum, w); err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
 			return
 		default:
 			w.WriteHeader(http.StatusInternalServerError)
@@ -61,7 +64,11 @@ func (h *Handler) CreateForum(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(newForum)
+	//json.NewEncoder(w).Encode(newForum)
+	if _, _, err := easyjson.MarshalToHTTPResponseWriter(newForum, w); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
 }
 
 func (h *Handler) ForumDetails(w http.ResponseWriter, r *http.Request) {
