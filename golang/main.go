@@ -4,6 +4,7 @@ import (
 	"github.com/Deiklov/tech-db-romanov-andr/golang/handlers"
 	"github.com/Deiklov/tech-db-romanov-andr/golang/middleware"
 	"github.com/gorilla/mux"
+	_ "github.com/jackc/pgx/stdlib"
 	"github.com/jmoiron/sqlx"
 	"log"
 	"net/http"
@@ -13,8 +14,7 @@ func main() {
 	router := mux.NewRouter()
 	//connectionString := "dbname=docker user=docker password=docker host=0.0.0.0 port=5432"
 	connectionString := "dbname=tmpxx user=andrey password=167839 host=localhost port=5432"
-	db, err := sqlx.Open("postgres", connectionString)
-
+	db, err := sqlx.Connect("pgx", connectionString)
 	if err != nil {
 		log.Fatal(err)
 	}

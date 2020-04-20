@@ -7,9 +7,9 @@ import (
 )
 
 type User struct {
-	About    null.String `json:"about"`
-	Email    null.String `json:"email"`
-	Fullname null.String `json:"fullname"`
+	About    null.String `json:"about,omitempty"`
+	Email    null.String `json:"email,omitempty"`
+	Fullname null.String `json:"fullname,omitempty"`
 	Nickname string      `json:"nickname"`
 }
 
@@ -87,3 +87,18 @@ type VotesInfo struct {
 	ThreadID int    `db:"thread_id"`
 	Nickname string `db:"nickname"`
 }
+
+//easyjson:json
+type PostSet []Post
+
+//easyjson:json
+type ThreadSet []Thread
+
+//easyjson:json
+type UserSet []User
+
+//easyjson:json
+type NotFoundMes map[string]string
+
+var NotFoundMsg = NotFoundMes{"message": "Not found"}
+var ConflictMsg = NotFoundMes{"message": "Conflict"}

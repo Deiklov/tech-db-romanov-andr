@@ -2,9 +2,9 @@ package handlers
 
 import (
 	"database/sql"
-	"encoding/json"
 	"github.com/Deiklov/tech-db-romanov-andr/golang/models"
-	"github.com/lib/pq"
+	"github.com/jackc/pgx"
+	"github.com/mailru/easyjson"
 	"net/http"
 	"strconv"
 )
@@ -14,7 +14,7 @@ func (h *Handler) ThreadInfo(w http.ResponseWriter, r *http.Request) {
 	id, err := h.toID(r)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"message": "not found this threads"})
+		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
 		return
 	}
 
@@ -23,19 +23,25 @@ func (h *Handler) ThreadInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(thread)
+	if _, _, err := easyjson.MarshalToHTTPResponseWriter(thread, w); err != nil {
+		http.Error(w, "easy", 500)
+		return
+	}
 }
 
 func (h *Handler) ThreadUpdate(w http.ResponseWriter, r *http.Request) {
 	id, err := h.toID(r)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"message": `not found this threads` + err.Error() + ``})
+		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
 		return
 	}
 	threadUPD := &models.ThreadUpdate{}
 	threadResult := &models.Thread{}
-	json.NewDecoder(r.Body).Decode(&threadUPD)
+	if err := easyjson.UnmarshalFromReader(r.Body, threadUPD); err != nil {
+		http.Error(w, "easy", 500)
+		return
+	}
 
 	queryThread := `update threads set`
 	if threadUPD.Message != "" {
@@ -51,7 +57,10 @@ func (h *Handler) ThreadUpdate(w http.ResponseWriter, r *http.Request) {
 
 	if threadUPD.Message == "" && threadUPD.Title == "" {
 		h.DB.Get(threadResult, `select * from threads where id=$1`, id)
-		json.NewEncoder(w).Encode(threadResult)
+		if _, _, err := easyjson.MarshalToHTTPResponseWriter(threadResult, w); err != nil {
+			http.Error(w, "easy", 500)
+			return
+		}
 		return
 	}
 
@@ -60,23 +69,27 @@ func (h *Handler) ThreadUpdate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if threadResult.Id <= 0 {
 			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]string{"message": "not found this threads"})
+			easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	json.NewEncoder(w).Encode(threadResult)
+	if _, _, err := easyjson.MarshalToHTTPResponseWriter(threadResult, w); err != nil {
+		http.Error(w, "easy", 500)
+		return
+	}
 }
 
 func (h *Handler) ThreadVotes(w http.ResponseWriter, r *http.Request) {
 	voice := &models.Vote{}
 	threadResult := &models.Thread{}
-	json.NewDecoder(r.Body).Decode(voice)
+	easyjson.UnmarshalFromReader(r.Body, voice)
+
 	threadID, err := h.toID(r)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"message": "not found this threads"})
+		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
 		return
 	}
 
@@ -88,14 +101,14 @@ func (h *Handler) ThreadVotes(w http.ResponseWriter, r *http.Request) {
 	query := `insert into votes_info(votes, thread_id, nickname)
 VALUES ($1, $2, $3)
 on conflict on constraint only_one_voice do update set votes=excluded.votes
- returning *`
+returning *`
 
 	_, err = h.DB.Exec(query, voiceBool, threadID, voice.Nickname)
-	if err, ok := err.(*pq.Error); ok {
+	if err, ok := err.(pgx.PgError); ok {
 		switch err.Code {
 		case "23502":
 			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]string{"message": "Can't find user with that nickname"})
+			easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
 			return
 		}
 	}
@@ -104,9 +117,12 @@ on conflict on constraint only_one_voice do update set votes=excluded.votes
 
 	if err == sql.ErrNoRows {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"message": "not found this threads"})
+		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
 		return
 	}
 
-	json.NewEncoder(w).Encode(threadResult)
+	if _, _, err := easyjson.MarshalToHTTPResponseWriter(threadResult, w); err != nil {
+		http.Error(w, "easyjson err", 500)
+		return
+	}
 }

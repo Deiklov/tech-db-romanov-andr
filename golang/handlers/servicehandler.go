@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"encoding/json"
 	"github.com/Deiklov/tech-db-romanov-andr/golang/models"
+	"github.com/mailru/easyjson"
 	"net/http"
 )
 
@@ -28,7 +28,10 @@ func (h *Handler) ServiceInfo(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	json.NewEncoder(w).Encode(serviceInfo)
+	if _, _, err := easyjson.MarshalToHTTPResponseWriter(serviceInfo, w); err != nil {
+		http.Error(w, "easy", 500)
+		return
+	}
 }
 
 func (h *Handler) ServiceClear(w http.ResponseWriter, r *http.Request) {

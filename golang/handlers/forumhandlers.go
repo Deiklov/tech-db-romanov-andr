@@ -2,11 +2,11 @@ package handlers
 
 import (
 	"database/sql"
-	"encoding/json"
 	"github.com/Deiklov/tech-db-romanov-andr/golang/models"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
-	"github.com/lib/pq"
+	"github.com/jackc/pgx"
+	_ "github.com/jackc/pgx/stdlib"
 	"github.com/mailru/easyjson"
 	"net/http"
 	"strconv"
@@ -27,7 +27,7 @@ func (h *Handler) CreateForum(w http.ResponseWriter, r *http.Request) {
 	//если нет юзера, то кидаем 404
 	if err == sql.ErrNoRows {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Can't find user with that nickname"})
+		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
 		return
 	}
 
@@ -37,7 +37,7 @@ func (h *Handler) CreateForum(w http.ResponseWriter, r *http.Request) {
 	queryForum := `insert into forums (slug, title,"user") values($1,$2,$3) returning slug;`
 	err = h.DB.Get(&backSlug, queryForum, newForum.Slug, newForum.Title, newForum.UserNick)
 
-	if err, ok := err.(*pq.Error); ok {
+	if err, ok := err.(pgx.PgError); ok {
 		switch err.Code {
 		//this is conflict code
 		case "23505":
@@ -51,10 +51,7 @@ func (h *Handler) CreateForum(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			if _, _, err := easyjson.MarshalToHTTPResponseWriter(oldForum, w); err != nil {
-				http.Error(w, err.Error(), 500)
-				return
-			}
+			easyjson.MarshalToHTTPResponseWriter(oldForum, w)
 			return
 		default:
 			w.WriteHeader(http.StatusInternalServerError)
@@ -64,7 +61,6 @@ func (h *Handler) CreateForum(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	//json.NewEncoder(w).Encode(newForum)
 	if _, _, err := easyjson.MarshalToHTTPResponseWriter(newForum, w); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -78,13 +74,13 @@ func (h *Handler) ForumDetails(w http.ResponseWriter, r *http.Request) {
 
 	if err == sql.ErrNoRows {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Can't find forum with this slug"})
+		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
 		return
 	}
 
 	if err == nil {
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(foundForum)
+		easyjson.MarshalToHTTPResponseWriter(foundForum, w)
 		return
 	}
 }
@@ -95,16 +91,12 @@ func (h *Handler) NewThread(w http.ResponseWriter, r *http.Request) {
 	authorDB := models.User{}
 
 	newThrd := &models.Thread{}
-	if err := json.NewDecoder(r.Body).Decode(newThrd); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "Invalid json !"}`))
-		return
-	}
+	err := easyjson.UnmarshalFromReader(r.Body, newThrd)
 
-	err := h.DB.Get(&forumDB, `select * from forums where lower(slug)=lower($1)`, slug)
+	err = h.DB.Get(&forumDB, `select * from forums where lower(slug)=lower($1)`, slug)
 	if err == sql.ErrNoRows {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"message": "not found forum for this slug"})
+		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
 		return
 	}
 
@@ -112,7 +104,7 @@ func (h *Handler) NewThread(w http.ResponseWriter, r *http.Request) {
 
 	if err == sql.ErrNoRows {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"message": "not found  this author"})
+		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
 		return
 	}
 
@@ -127,18 +119,18 @@ func (h *Handler) NewThread(w http.ResponseWriter, r *http.Request) {
 	err = h.DB.Get(newThrd, queryThreads, newThrd.Author, newThrd.Forum, newThrd.Message, newThrd.Title, newThrd.Created)
 
 	if err != nil {
-		if err, ok := err.(*pq.Error); ok {
+		if err, ok := err.(pgx.PgError); ok {
 			switch err.Code {
 			//не вставит если нет юзера или форума
 			case "23503":
 				w.WriteHeader(http.StatusNotFound)
-				json.NewEncoder(w).Encode(map[string]string{"message": "not exsist that user or forum"})
+				easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
 				return
 			case "23505":
 				w.WriteHeader(http.StatusConflict)
 				exsistThread := models.Thread{}
 				h.DB.Get(&exsistThread, `select * from threads where lower(slug)=lower($1)`, newThrd.Slug.String)
-				json.NewEncoder(w).Encode(exsistThread)
+				easyjson.MarshalToHTTPResponseWriter(exsistThread, w)
 				return
 			default:
 				w.WriteHeader(http.StatusInternalServerError)
@@ -149,7 +141,7 @@ func (h *Handler) NewThread(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(newThrd)
+	easyjson.MarshalToHTTPResponseWriter(newThrd, w)
 }
 
 func (h *Handler) AllThreadsFromForum(w http.ResponseWriter, r *http.Request) {
@@ -163,14 +155,14 @@ func (h *Handler) AllThreadsFromForum(w http.ResponseWriter, r *http.Request) {
 
 	slug := mux.Vars(r)["slug"]
 
-	items := []models.Thread{}
+	items := models.ThreadSet{}
 	params.Since = params.Since.UTC()
 
 	forumSlugFromDB := ""
 	err := h.DB.Get(&forumSlugFromDB, `select slug from forums where lower(slug)=lower($1)`, slug)
 	if err == sql.ErrNoRows {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"message": "not found"})
+		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
 		return
 	}
 
@@ -197,8 +189,10 @@ from threads where lower(forum)=lower($1) `
 	err = h.DB.Select(&items, threadsQuery, slug, params.Since)
 
 	if err == sql.ErrNoRows {
-		json.NewEncoder(w).Encode(items)
-		return
+		if _, _, err := easyjson.MarshalToHTTPResponseWriter(items, w); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 	}
 
 	if err != nil {
@@ -206,7 +200,8 @@ from threads where lower(forum)=lower($1) `
 		w.Write([]byte(err.Error()))
 		return
 	}
-	if err := json.NewEncoder(w).Encode(items); err != nil {
+
+	if _, _, err := easyjson.MarshalToHTTPResponseWriter(items, w); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -227,16 +222,16 @@ func (h *Handler) AllUsersForum(w http.ResponseWriter, r *http.Request) {
 	err := h.DB.Get(&forumSlug, `select slug from forums where lower(slug)=lower($1)`, slug)
 	if err == sql.ErrNoRows {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"message": "not found"})
+		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
 		return
 	}
 
-	users := []models.User{}
+	users := models.UserSet{}
 
-	userQuery := `SELECT * FROM (select distinct about,email,fullname,nickname from threads 
-    join users u on lower(threads.author) = lower(u.nickname) where lower(forum)=lower($1)
-	UNION 
-	SELECT DISTINCT about,email,fullname,nickname FROM posts 
+	userQuery := `SELECT * FROM (select distinct about,email,fullname,nickname from threads
+   join users u on lower(threads.author) = lower(u.nickname) where lower(forum)=lower($1)
+	UNION
+	SELECT DISTINCT about,email,fullname,nickname FROM posts
 	    JOIN users u2 on lower(posts.author) = lower(u2.nickname) WHERE lower(forum)=lower($1)) sub`
 
 	if params.Desc {
@@ -261,5 +256,5 @@ func (h *Handler) AllUsersForum(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(users)
+	easyjson.MarshalToHTTPResponseWriter(users, w)
 }

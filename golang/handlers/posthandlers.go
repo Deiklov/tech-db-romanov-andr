@@ -7,8 +7,10 @@ import (
 	"github.com/Deiklov/tech-db-romanov-andr/golang/models"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
-	"github.com/lib/pq"
+	"github.com/jackc/pgx"
+	"github.com/mailru/easyjson"
 	"github.com/pkg/errors"
+	"gopkg.in/guregu/null.v3"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,13 +18,16 @@ import (
 )
 
 func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
-	postResult := []*models.Post{}
-	json.NewDecoder(r.Body).Decode(&postResult)
+	postResult := models.PostSet{}
+	if err := easyjson.UnmarshalFromReader(r.Body, &postResult); err != nil {
+		http.Error(w, "err in easyjson", 500)
+		return
+	}
 	threadId, err := h.toID(r)
 
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Can't find thread"})
+		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
 		return
 	}
 
@@ -38,15 +43,15 @@ func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 	err = h.bulkInsert(postResult, forumSlug, threadId, currTime)
 
 	if err != nil {
-		if err, ok := err.(*pq.Error); ok {
+		if err, ok := err.(pgx.PgError); ok {
 			switch err.Message {
 			case "invalid parent id":
 				w.WriteHeader(http.StatusConflict)
-				json.NewEncoder(w).Encode(map[string]string{"message": "parent doesn't exsist in this thread"})
+				easyjson.MarshalToHTTPResponseWriter(models.ConflictMsg, w)
 				return
 			case "not found author":
 				w.WriteHeader(http.StatusNotFound)
-				json.NewEncoder(w).Encode(map[string]string{"message": "author doesn't exsist"})
+				easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
 				return
 			default:
 				w.WriteHeader(http.StatusInternalServerError)
@@ -55,13 +60,16 @@ func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	retPosts := []*models.Post{}
-	//todo maybe insert in other order
+	retPosts := models.PostSet{}
+
 	err = h.DB.
 		Select(&retPosts, `select * from posts where created=$1 order by id`, currTime)
 
 	if err == sql.ErrNoRows {
-		json.NewEncoder(w).Encode(retPosts)
+		if _, _, err := easyjson.MarshalToHTTPResponseWriter(retPosts, w); err != nil {
+			http.Error(w, "easyjson err", 500)
+			return
+		}
 		w.WriteHeader(http.StatusCreated)
 		return
 	}
@@ -73,7 +81,11 @@ func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(retPosts)
+
+	if _, _, err := easyjson.MarshalToHTTPResponseWriter(retPosts, w); err != nil {
+		http.Error(w, "easyjson err", 500)
+		return
+	}
 
 }
 func (h *Handler) GetPost(w http.ResponseWriter, r *http.Request) {
@@ -91,7 +103,7 @@ func (h *Handler) GetPost(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case err == sql.ErrNoRows:
 			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]string{"message": "Can't find user with that nickname"})
+			easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
 			return
 		default:
 			w.WriteHeader(http.StatusInternalServerError)
@@ -151,8 +163,10 @@ func (h *Handler) UpdatePost(w http.ResponseWriter, r *http.Request) {
 	retPost := models.Post{}
 	newPostData := models.PostUpdate{}
 
-	if err := json.NewDecoder(r.Body).Decode(&newPostData); err != nil {
+	err = easyjson.UnmarshalFromReader(r.Body, &newPostData)
+	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error": "Invalid json !"`))
 		return
 	}
 
@@ -160,7 +174,7 @@ func (h *Handler) UpdatePost(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case err == sql.ErrNoRows:
 			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]string{"message": "Can't find user with that nickname"})
+			easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
 			return
 		default:
 			w.WriteHeader(http.StatusInternalServerError)
@@ -171,7 +185,7 @@ func (h *Handler) UpdatePost(w http.ResponseWriter, r *http.Request) {
 	updatedPost := models.Post{}
 	//то же самое сообщение
 	if retPost.Message == newPostData.Message || newPostData.Message == "" {
-		json.NewEncoder(w).Encode(retPost)
+		easyjson.MarshalToHTTPResponseWriter(retPost, w)
 		return
 	}
 
@@ -181,7 +195,7 @@ func (h *Handler) UpdatePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(&updatedPost)
+	easyjson.MarshalToHTTPResponseWriter(updatedPost, w)
 }
 
 func (h *Handler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
@@ -189,11 +203,11 @@ func (h *Handler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 	id, err := h.toID(r)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Can't find this thread"})
+		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
 		return
 	}
 
-	postList := []models.Post{}
+	postList := models.PostSet{}
 
 	params := &models.PostParams{}
 	decoder := schema.NewDecoder()
@@ -225,8 +239,8 @@ func (h *Handler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 
 	switch params.Sort {
 	case "tree":
-		rootPostList := []models.Post{}
-		resultPostList := []models.Post{}
+		rootPostList := models.PostSet{}
+		resultPostList := models.PostSet{}
 		//shadow var query
 		query := `select * from posts where thread=$1 and parent is null order by id `
 
@@ -246,7 +260,7 @@ func (h *Handler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		res := []models.Post{}
+		res := models.PostSet{}
 
 		if params.Since > 0 {
 			for i, v := range resultPostList {
@@ -263,12 +277,14 @@ func (h *Handler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 				resultPostList = resultPostList[:params.Limit]
 			}
 		}
-
-		json.NewEncoder(w).Encode(resultPostList)
+		if _, _, err := easyjson.MarshalToHTTPResponseWriter(resultPostList, w); err != nil {
+			http.Error(w, "easy", 500)
+			return
+		}
 		return
 	case "parent_tree":
-		rootPostList := []models.Post{}
-		resultPostList := []models.Post{}
+		rootPostList := models.PostSet{}
+		resultPostList := models.PostSet{}
 		//shadow var query
 		query := `select * from posts where thread=$1 and parent is null order by id `
 
@@ -292,7 +308,7 @@ func (h *Handler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 
 		}
 
-		res := []models.Post{}
+		res := models.PostSet{}
 
 		if params.Since > 0 {
 			for i, v := range resultPostList {
@@ -304,13 +320,19 @@ func (h *Handler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 			resultPostList = res
 		}
 
-		json.NewEncoder(w).Encode(resultPostList)
+		if _, _, err := easyjson.MarshalToHTTPResponseWriter(resultPostList, w); err != nil {
+			http.Error(w, "easy", 500)
+			return
+		}
 		return
 	default:
 	}
 	err = h.DB.Select(&postList, query, id)
 
-	json.NewEncoder(w).Encode(postList)
+	if _, _, err := easyjson.MarshalToHTTPResponseWriter(postList, w); err != nil {
+		http.Error(w, "easy", 500)
+		return
+	}
 	return
 
 }
@@ -333,8 +355,8 @@ func (h *Handler) toID(r *http.Request) (int, error) {
 	}
 	return threadId, nil
 }
-func (h *Handler) getPosts(parentID int, threadID int, desc bool) []models.Post {
-	postData := []models.Post{}
+func (h *Handler) getPosts(parentID int, threadID int, desc bool) models.PostSet {
+	postData := models.PostSet{}
 	query := `select * from posts where thread=$1 and parent=$2 order by id`
 	if desc {
 		query += ` desc`
@@ -344,7 +366,7 @@ func (h *Handler) getPosts(parentID int, threadID int, desc bool) []models.Post 
 		return nil
 	}
 
-	resultPostData := []models.Post{}
+	resultPostData := models.PostSet{}
 
 	if len(postData) == 0 {
 		return postData
@@ -364,7 +386,7 @@ func (h *Handler) getPosts(parentID int, threadID int, desc bool) []models.Post 
 		return resultPostData
 	}
 }
-func (h *Handler) bulkInsert(unsavedRows []*models.Post, slug string, threadID int, created time.Time) error {
+func (h *Handler) bulkInsert(unsavedRows models.PostSet, slug string, threadID int, created time.Time) error {
 	valueStrings := make([]string, 0, len(unsavedRows))
 	if cap(valueStrings) == 0 {
 		return nil
@@ -380,7 +402,7 @@ func (h *Handler) bulkInsert(unsavedRows []*models.Post, slug string, threadID i
 		if post.Parent.Int64 != 0 {
 			valueArgs = append(valueArgs, post.Parent)
 		} else {
-			valueArgs = append(valueArgs, sql.NullString{})
+			valueArgs = append(valueArgs, null.String{})
 		}
 		valueArgs = append(valueArgs, threadID)
 		i++
