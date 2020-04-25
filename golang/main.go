@@ -4,6 +4,7 @@ import (
 	"github.com/Deiklov/tech-db-romanov-andr/golang/handlers"
 	"github.com/Deiklov/tech-db-romanov-andr/golang/middleware"
 	"github.com/gorilla/mux"
+	"github.com/jackc/pgx"
 	_ "github.com/jackc/pgx/stdlib"
 	"github.com/jmoiron/sqlx"
 	"log"
@@ -18,10 +19,23 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
+	conf := pgx.ConnPoolConfig{
+		ConnConfig: pgx.ConnConfig{
+			Host:     "localhost",
+			User:     "andrey",
+			Database: "tmpxx",
+			Password: "167839",
+			Port:     5432,
+		},
+		MaxConnections: 20,
+	}
+	conn, err := pgx.NewConnPool(conf)
+	if err != nil {
+		panic(err)
+	}
 	//createDB(db)
 
-	Handlers := handlers.Handler{db}
+	Handlers := handlers.Handler{db, conn}
 	r := router.PathPrefix("/api").Subrouter()
 
 	r.HandleFunc("/user/{nickname}/create", Handlers.CreateUser).Methods(http.MethodPost)

@@ -11,7 +11,8 @@ import (
 )
 
 type Handler struct {
-	DB *sqlx.DB
+	DB   *sqlx.DB
+	Conn *pgx.ConnPool
 }
 
 func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {

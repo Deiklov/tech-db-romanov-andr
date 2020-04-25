@@ -38,7 +38,6 @@ func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-
 	currTime := time.Now().UTC()
 	err = h.bulkInsert(postResult, forumSlug, threadId, currTime)
 
@@ -63,8 +62,7 @@ func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 	retPosts := models.PostSet{}
 
 	err = h.DB.
-		Select(&retPosts, `select * from posts where created=$1 order by id`, currTime)
-
+		Select(&retPosts, `select * from posts where created=$1 order by id limit $2`, currTime, len(postResult))
 	if err == sql.ErrNoRows {
 		if _, _, err := easyjson.MarshalToHTTPResponseWriter(retPosts, w); err != nil {
 			http.Error(w, "easyjson err", 500)
