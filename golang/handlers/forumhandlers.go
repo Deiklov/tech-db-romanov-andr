@@ -3,31 +3,29 @@ package handlers
 import (
 	"database/sql"
 	"github.com/Deiklov/tech-db-romanov-andr/golang/models"
-	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
 	"github.com/jackc/pgx"
 	_ "github.com/jackc/pgx/stdlib"
 	"github.com/mailru/easyjson"
+	"github.com/valyala/fasthttp"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 )
 
-func (h *Handler) CreateForum(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) CreateForum(ctx *fasthttp.RequestCtx) {
 	newForum := &models.Forum{}
-	if err := easyjson.UnmarshalFromReader(r.Body, newForum); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
+	_ = easyjson.Unmarshal(ctx.PostBody(), newForum)
 
 	//чекаем есть ли юзер
 	var nickname string
 	err := h.DB.QueryRow(`select nickname from users where lower(nickname)=lower($1);`, newForum.UserNick).Scan(&nickname)
 	//если нет юзера, то кидаем 404
 	if err == sql.ErrNoRows {
-		w.WriteHeader(http.StatusNotFound)
-		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
+		ctx.SetStatusCode(404)
+		data, _ := easyjson.Marshal(models.NotFoundMsg)
+		ctx.Write(data)
 		return
 	}
 
@@ -41,70 +39,67 @@ func (h *Handler) CreateForum(w http.ResponseWriter, r *http.Request) {
 		switch err.Code {
 		//this is conflict code
 		case "23505":
-			w.WriteHeader(http.StatusConflict)
+			ctx.SetStatusCode(409)
 			oldForum := &models.Forum{}
 
 			userInsertState := `SELECT * from forums where lower(slug)=lower($1);`
 			if err := h.DB.Get(oldForum, userInsertState, newForum.Slug); err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte("конфликт, не смог выбрать форум"))
+				ctx.SetStatusCode(http.StatusInternalServerError)
 				return
 			}
 
-			easyjson.MarshalToHTTPResponseWriter(oldForum, w)
+			data, _ := easyjson.Marshal(oldForum)
+			ctx.Write(data)
 			return
 		default:
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("Some error with data querys!"))
+			ctx.SetStatusCode(http.StatusInternalServerError)
 			return
 		}
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	if _, _, err := easyjson.MarshalToHTTPResponseWriter(newForum, w); err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
+	ctx.SetStatusCode(http.StatusCreated)
+	data, _ := easyjson.Marshal(newForum)
+	ctx.Write(data)
 }
 
-func (h *Handler) ForumDetails(w http.ResponseWriter, r *http.Request) {
-	slug := mux.Vars(r)["slug"]
+func (h *Handler) ForumDetails(ctx *fasthttp.RequestCtx) {
+	slug := ctx.UserValue("slug").(string)
 	foundForum := &models.Forum{}
 	err := h.DB.Get(foundForum, `select * from forums where lower(slug)=lower($1)`, slug)
 
 	if err == sql.ErrNoRows {
-		w.WriteHeader(http.StatusNotFound)
-		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
+		ctx.SetStatusCode(404)
+		data, _ := easyjson.Marshal(models.NotFoundMsg)
+		ctx.Write(data)
 		return
 	}
 
-	if err == nil {
-		w.WriteHeader(http.StatusOK)
-		easyjson.MarshalToHTTPResponseWriter(foundForum, w)
-		return
-	}
+	data, _ := easyjson.Marshal(foundForum)
+	ctx.Write(data)
 }
 
-func (h *Handler) NewThread(w http.ResponseWriter, r *http.Request) {
-	slug := mux.Vars(r)["slug"]
+func (h *Handler) NewThread(ctx *fasthttp.RequestCtx) {
+	slug := ctx.UserValue("slug").(string)
 	forumDB := models.Forum{}
 	authorDB := models.User{}
 
 	newThrd := &models.Thread{}
-	err := easyjson.UnmarshalFromReader(r.Body, newThrd)
+	_ = easyjson.Unmarshal(ctx.PostBody(), newThrd)
 
-	err = h.DB.Get(&forumDB, `select * from forums where lower(slug)=lower($1)`, slug)
+	err := h.DB.Get(&forumDB, `select * from forums where lower(slug)=lower($1)`, slug)
 	if err == sql.ErrNoRows {
-		w.WriteHeader(http.StatusNotFound)
-		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
+		ctx.SetStatusCode(404)
+		data, _ := easyjson.Marshal(models.NotFoundMsg)
+		ctx.Write(data)
 		return
 	}
 
 	err = h.DB.Get(&authorDB, `select * from users where lower(nickname)=lower($1)`, newThrd.Author)
 
 	if err == sql.ErrNoRows {
-		w.WriteHeader(http.StatusNotFound)
-		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
+		ctx.SetStatusCode(404)
+		data, _ := easyjson.Marshal(models.NotFoundMsg)
+		ctx.Write(data)
 		return
 	}
 
@@ -123,37 +118,45 @@ func (h *Handler) NewThread(w http.ResponseWriter, r *http.Request) {
 			switch err.Code {
 			//не вставит если нет юзера или форума
 			case "23503":
-				w.WriteHeader(http.StatusNotFound)
-				easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
+				ctx.SetStatusCode(404)
+				data, _ := easyjson.Marshal(models.NotFoundMsg)
+				ctx.Write(data)
 				return
 			case "23505":
-				w.WriteHeader(http.StatusConflict)
+				ctx.SetStatusCode(409)
 				exsistThread := models.Thread{}
 				h.DB.Get(&exsistThread, `select * from threads where lower(slug)=lower($1)`, newThrd.Slug.String)
-				easyjson.MarshalToHTTPResponseWriter(exsistThread, w)
+				data, _ := easyjson.Marshal(exsistThread)
+				ctx.Write(data)
 				return
 			default:
-				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte("Some error with data querys!"))
+				ctx.SetStatusCode(500)
 				return
 			}
 		}
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	easyjson.MarshalToHTTPResponseWriter(newThrd, w)
+	ctx.SetStatusCode(201)
+	data, _ := easyjson.Marshal(newThrd)
+	ctx.Write(data)
 }
 
-func (h *Handler) AllThreadsFromForum(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) AllThreadsFromForum(ctx *fasthttp.RequestCtx) {
 	params := &models.ThreadParams{}
 	decoder := schema.NewDecoder()
 	decoder.IgnoreUnknownKeys(true)
-	if err := decoder.Decode(params, r.URL.Query()); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+	argsList := make(map[string][]string)
+
+	ctx.QueryArgs().VisitAll(func(key, value []byte) {
+		argsList[string(key)] = []string{string(value)}
+	})
+
+	if err := decoder.Decode(params, argsList); err != nil {
+		ctx.SetStatusCode(500)
 		return
 	}
 
-	slug := mux.Vars(r)["slug"]
+	slug := ctx.UserValue("slug").(string)
 
 	items := models.ThreadSet{}
 	params.Since = params.Since.UTC()
@@ -161,8 +164,9 @@ func (h *Handler) AllThreadsFromForum(w http.ResponseWriter, r *http.Request) {
 	forumSlugFromDB := ""
 	err := h.DB.Get(&forumSlugFromDB, `select slug from forums where lower(slug)=lower($1)`, slug)
 	if err == sql.ErrNoRows {
-		w.WriteHeader(http.StatusNotFound)
-		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
+		ctx.SetStatusCode(404)
+		data, _ := easyjson.Marshal(models.NotFoundMsg)
+		ctx.Write(data)
 		return
 	}
 
@@ -189,40 +193,43 @@ from threads where lower(forum)=lower($1) `
 	err = h.DB.Select(&items, threadsQuery, slug, params.Since)
 
 	if err == sql.ErrNoRows {
-		if _, _, err := easyjson.MarshalToHTTPResponseWriter(items, w); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
+		data, _ := easyjson.Marshal(items)
+		ctx.Write(data)
 	}
 
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
+		ctx.SetStatusCode(500)
+		ctx.Write([]byte(err.Error()))
 		return
 	}
 
-	if _, _, err := easyjson.MarshalToHTTPResponseWriter(items, w); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
+	data, _ := easyjson.Marshal(items)
+	ctx.Write(data)
 }
 
-func (h *Handler) AllUsersForum(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) AllUsersForum(ctx *fasthttp.RequestCtx) {
 	params := &models.ForumUserParams{}
 	decoder := schema.NewDecoder()
 	decoder.IgnoreUnknownKeys(true)
-	if err := decoder.Decode(params, r.URL.Query()); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+	argsList := make(map[string][]string)
+
+	ctx.QueryArgs().VisitAll(func(key, value []byte) {
+		argsList[string(key)] = []string{string(value)}
+	})
+
+	if err := decoder.Decode(params, argsList); err != nil {
+		ctx.SetStatusCode(500)
 		return
 	}
 
-	slug := mux.Vars(r)["slug"]
+	slug := ctx.UserValue("slug").(string)
 
 	forumSlug := ""
 	err := h.DB.Get(&forumSlug, `select slug from forums where lower(slug)=lower($1)`, slug)
 	if err == sql.ErrNoRows {
-		w.WriteHeader(http.StatusNotFound)
-		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
+		ctx.SetStatusCode(404)
+		data, _ := easyjson.Marshal(models.NotFoundMsg)
+		ctx.Write(data)
 		return
 	}
 
@@ -251,10 +258,10 @@ func (h *Handler) AllUsersForum(w http.ResponseWriter, r *http.Request) {
 	err = h.DB.Select(&users, userQuery, slug)
 
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("error with select already exsist user"))
+		ctx.SetStatusCode(500)
 		return
 	}
 
-	easyjson.MarshalToHTTPResponseWriter(users, w)
+	data, _ := easyjson.Marshal(users)
+	ctx.Write(data)
 }

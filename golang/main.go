@@ -1,67 +1,58 @@
 package main
 
 import (
+	"context"
 	"github.com/Deiklov/tech-db-romanov-andr/golang/handlers"
 	"github.com/Deiklov/tech-db-romanov-andr/golang/middleware"
-	"github.com/gorilla/mux"
-	"github.com/jackc/pgx"
+	"github.com/fasthttp/router"
 	_ "github.com/jackc/pgx/stdlib"
+	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/jmoiron/sqlx"
+	"github.com/valyala/fasthttp"
 	"log"
-	"net/http"
 )
 
 func main() {
-	router := mux.NewRouter()
+	r := router.New()
 	//connectionString := "dbname=docker user=docker password=docker host=0.0.0.0 port=5432"
 	connectionString := "dbname=tmpxx user=andrey password=167839 host=localhost port=5432"
 	db, err := sqlx.Connect("pgx", connectionString)
 	if err != nil {
 		log.Fatal(err)
 	}
-	conf := pgx.ConnPoolConfig{
-		ConnConfig: pgx.ConnConfig{
-			Host:     "localhost",
-			User:     "andrey",
-			Database: "tmpxx",
-			Password: "167839",
-			Port:     5432,
-		},
-		MaxConnections: 20,
-	}
-	conn, err := pgx.NewConnPool(conf)
+	conn, err := pgxpool.Connect(context.Background(), connectionString)
+
 	if err != nil {
 		panic(err)
 	}
 	//createDB(db)
 
 	Handlers := handlers.Handler{db, conn}
-	r := router.PathPrefix("/api").Subrouter()
 
-	r.HandleFunc("/user/{nickname}/create", Handlers.CreateUser).Methods(http.MethodPost)
-	r.HandleFunc("/user/{nickname}/profile", Handlers.UpdateUser).Methods(http.MethodPost)
-	r.HandleFunc("/user/{nickname}/profile", Handlers.GetUser).Methods(http.MethodGet)
+	r.POST("/api/user/{nickname}/create", middleware.SetJson(Handlers.CreateUser))
+	r.POST("/api/user/{nickname}/profile", middleware.SetJson(Handlers.UpdateUser))
+	r.GET("/api/user/{nickname}/profile", middleware.SetJson(Handlers.GetUser))
 
-	r.HandleFunc("/forum/create", Handlers.CreateForum).Methods(http.MethodPost)
-	r.HandleFunc("/forum/{slug}/details", Handlers.ForumDetails).Methods(http.MethodGet)
-	r.HandleFunc("/forum/{slug}/create", Handlers.NewThread).Methods(http.MethodPost)
-	r.HandleFunc("/forum/{slug}/threads", Handlers.AllThreadsFromForum).Methods(http.MethodGet)
-	r.HandleFunc("/forum/{slug}/users", Handlers.AllUsersForum).Methods(http.MethodGet)
+	r.POST("/api/forum/create", middleware.SetJson(Handlers.CreateForum))
+	r.GET("/api/forum/{slug}/details", middleware.SetJson(Handlers.ForumDetails))
+	r.POST("/api/forum/{slug}/create", middleware.SetJson(Handlers.NewThread))
 
-	r.HandleFunc("/thread/{slug_or_id}/details", Handlers.ThreadInfo).Methods(http.MethodGet)
-	r.HandleFunc("/thread/{slug_or_id}/details", Handlers.ThreadUpdate).Methods(http.MethodPost)
-	r.HandleFunc("/thread/{slug_or_id}/vote", Handlers.ThreadVotes).Methods(http.MethodPost)
+	r.GET("/api/forum/{slug}/threads", middleware.SetJson(Handlers.AllThreadsFromForum))
+	r.GET("/api/forum/{slug}/users", middleware.SetJson(Handlers.AllUsersForum))
 
-	r.HandleFunc("/service/clear", Handlers.ServiceClear).Methods(http.MethodPost)
-	r.HandleFunc("/service/status", Handlers.ServiceInfo).Methods(http.MethodGet)
+	r.GET("/api/thread/{slug_or_id}/details", middleware.SetJson(Handlers.ThreadInfo))
+	r.POST("/api/thread/{slug_or_id}/details", middleware.SetJson(Handlers.ThreadUpdate))
+	r.POST("/api/thread/{slug_or_id}/vote", middleware.SetJson(Handlers.ThreadVotes))
 
-	r.HandleFunc("/thread/{slug_or_id}/create", Handlers.CreatePost).Methods(http.MethodPost)
-	r.HandleFunc("/thread/{slug_or_id}/posts", Handlers.GetAllPosts).Methods(http.MethodGet)
-	r.HandleFunc("/post/{id}/details", Handlers.UpdatePost).Methods(http.MethodPost)
-	r.HandleFunc("/post/{id}/details", Handlers.GetPost).Methods(http.MethodGet)
-	http.Handle("/", r)
+	r.POST("/api/service/clear", middleware.SetJson(Handlers.ServiceClear))
+	r.GET("/api/service/status", middleware.SetJson(Handlers.ServiceInfo))
 
-	if err := http.ListenAndServe(":5000", middleware.SetApplJson(r)); err != nil {
+	r.POST("/api/thread/{slug_or_id}/create", middleware.SetJson(Handlers.CreatePost))
+	r.GET("/api/thread/{slug_or_id}/posts", middleware.SetJson(Handlers.GetAllPosts))
+	r.POST("/api/post/{id}/details", middleware.SetJson(Handlers.UpdatePost))
+	r.GET("/api/post/{id}/details", middleware.SetJson(Handlers.GetPost))
+
+	if err := fasthttp.ListenAndServe(":5000", r.Handler); err != nil {
 		log.Fatal(err)
 	}
 }

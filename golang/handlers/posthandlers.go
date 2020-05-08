@@ -1,33 +1,31 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"github.com/Deiklov/tech-db-romanov-andr/golang/models"
-	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
-	"github.com/jackc/pgx"
+	"github.com/jackc/pgconn"
+	pgx4 "github.com/jackc/pgx/v4"
 	"github.com/mailru/easyjson"
 	"github.com/pkg/errors"
+	"github.com/valyala/fasthttp"
 	"gopkg.in/guregu/null.v3"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
 )
 
-func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) CreatePost(ctx *fasthttp.RequestCtx) {
 	postResult := models.PostSet{}
-	if err := easyjson.UnmarshalFromReader(r.Body, &postResult); err != nil {
-		http.Error(w, "err in easyjson", 500)
-		return
-	}
-	threadId, err := h.toID(r)
+	easyjson.Unmarshal(ctx.PostBody(), &postResult)
+	threadId, err := h.toID(ctx)
 
 	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
+		ctx.SetStatusCode(404)
+		data, _ := easyjson.Marshal(models.NotFoundMsg)
+		ctx.Write(data)
 		return
 	}
 
@@ -35,76 +33,79 @@ func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 	if err := h.DB.Get(&forumSlug, `select forums.slug from forums
 		inner join threads t on forums.slug = t.forum
 	where t.id=$1 limit 1`, threadId); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+		ctx.SetStatusCode(500)
 		return
 	}
 	currTime := time.Now().UTC()
+	//con, _ := h.Conn.Acquire(context.Background())
+	//defer con.Release()
 	err = h.bulkInsert(postResult, forumSlug, threadId, currTime)
-
 	if err != nil {
-		if err, ok := err.(pgx.PgError); ok {
+		if err, ok := err.(*pgconn.PgError); ok {
 			switch err.Message {
 			case "invalid parent id":
-				w.WriteHeader(http.StatusConflict)
-				easyjson.MarshalToHTTPResponseWriter(models.ConflictMsg, w)
+				ctx.SetStatusCode(409)
+				data, _ := easyjson.Marshal(models.ConflictMsg)
+				ctx.Write(data)
 				return
 			case "not found author":
-				w.WriteHeader(http.StatusNotFound)
-				easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
+				ctx.SetStatusCode(404)
+				data, _ := easyjson.Marshal(models.NotFoundMsg)
+				ctx.Write(data)
 				return
 			default:
-				w.WriteHeader(http.StatusInternalServerError)
+				ctx.SetStatusCode(500)
+				ctx.Write([]byte(err.Error()))
 				return
 			}
 		}
 	}
 
 	retPosts := models.PostSet{}
-
 	err = h.DB.
-		Select(&retPosts, `select * from posts where created=$1 order by id limit $2`, currTime, len(postResult))
+		Select(&retPosts, `select * from posts where created=$1 order by id`, currTime)
 	if err == sql.ErrNoRows {
-		if _, _, err := easyjson.MarshalToHTTPResponseWriter(retPosts, w); err != nil {
-			http.Error(w, "easyjson err", 500)
-			return
-		}
-		w.WriteHeader(http.StatusCreated)
+		data, _ := easyjson.Marshal(retPosts)
+		ctx.Write(data)
+		ctx.SetStatusCode(201)
 		return
 	}
 
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
+		ctx.SetStatusCode(500)
+		ctx.Write([]byte(err.Error()))
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
+	ctx.SetStatusCode(201)
 
-	if _, _, err := easyjson.MarshalToHTTPResponseWriter(retPosts, w); err != nil {
-		http.Error(w, "easyjson err", 500)
-		return
-	}
+	data, _ := easyjson.Marshal(retPosts)
+	ctx.Write(data)
 
 }
-func (h *Handler) GetPost(w http.ResponseWriter, r *http.Request) {
-	stringID := mux.Vars(r)["id"]
+func (h *Handler) GetPost(ctx *fasthttp.RequestCtx) {
+	stringID := ctx.UserValue("id").(string)
 	postID, err := strconv.Atoi(stringID)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+		ctx.SetStatusCode(500)
 		return
 	}
-	paramsInString := r.URL.Query().Get("related")
-	related := strings.Split(paramsInString, ",")
+	//var related []string
+	paramsInStringByte := ctx.QueryArgs().Peek("related")
+
+	related := strings.Split(string(paramsInStringByte), ",")
+
 	retPost := models.Post{}
 	//нету параметров
 	if err := h.DB.Get(&retPost, `select * from posts where id=$1`, postID); err != nil {
 		switch {
 		case err == sql.ErrNoRows:
-			w.WriteHeader(http.StatusNotFound)
-			easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
+			ctx.SetStatusCode(404)
+			data, _ := easyjson.Marshal(models.NotFoundMsg)
+			ctx.Write(data)
 			return
 		default:
-			w.WriteHeader(http.StatusInternalServerError)
+			ctx.SetStatusCode(500)
 			return
 		}
 	}
@@ -117,17 +118,17 @@ func (h *Handler) GetPost(w http.ResponseWriter, r *http.Request) {
 		switch v {
 		case "user":
 			if err := h.DB.Get(&author, `select * from users where lower(nickname)=lower($1)`, retPost.Author); err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
+				ctx.SetStatusCode(500)
 				return
 			}
 		case "forum":
 			if err := h.DB.Get(&forum, `select * from forums where lower(slug)=lower($1)`, retPost.Forum); err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
+				ctx.SetStatusCode(500)
 				return
 			}
 		case "thread":
 			if err := h.DB.Get(&thread, `select * from threads where id=$1`, retPost.Thread); err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
+				ctx.SetStatusCode(500)
 				return
 			}
 		}
@@ -147,35 +148,32 @@ func (h *Handler) GetPost(w http.ResponseWriter, r *http.Request) {
 		res["forum"] = forum
 	}
 
-	json.NewEncoder(w).Encode(&res)
+	data, _ := json.Marshal(res)
+	ctx.Write(data)
 
 }
-func (h *Handler) UpdatePost(w http.ResponseWriter, r *http.Request) {
-	stringID := mux.Vars(r)["id"]
+func (h *Handler) UpdatePost(ctx *fasthttp.RequestCtx) {
+	stringID := ctx.UserValue("id").(string)
 	postID, err := strconv.Atoi(stringID)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+		ctx.SetStatusCode(500)
 		return
 	}
 
 	retPost := models.Post{}
 	newPostData := models.PostUpdate{}
 
-	err = easyjson.UnmarshalFromReader(r.Body, &newPostData)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "Invalid json !"`))
-		return
-	}
+	err = easyjson.Unmarshal(ctx.PostBody(), &newPostData)
 
 	if err := h.DB.Get(&retPost, `select * from posts where id=$1`, postID); err != nil {
 		switch {
 		case err == sql.ErrNoRows:
-			w.WriteHeader(http.StatusNotFound)
-			easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
+			ctx.SetStatusCode(404)
+			data, _ := easyjson.Marshal(models.NotFoundMsg)
+			ctx.Write(data)
 			return
 		default:
-			w.WriteHeader(http.StatusInternalServerError)
+			ctx.SetStatusCode(500)
 			return
 		}
 	}
@@ -183,25 +181,28 @@ func (h *Handler) UpdatePost(w http.ResponseWriter, r *http.Request) {
 	updatedPost := models.Post{}
 	//то же самое сообщение
 	if retPost.Message == newPostData.Message || newPostData.Message == "" {
-		easyjson.MarshalToHTTPResponseWriter(retPost, w)
+		data, _ := easyjson.Marshal(retPost)
+		ctx.Write(data)
 		return
 	}
 
 	err = h.DB.Get(&updatedPost, `update posts set message=$1, isedited=true where id=$2 returning *`, newPostData.Message, postID)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+		ctx.SetStatusCode(500)
 		return
 	}
 
-	easyjson.MarshalToHTTPResponseWriter(updatedPost, w)
+	data, _ := easyjson.Marshal(updatedPost)
+	ctx.Write(data)
 }
 
-func (h *Handler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) GetAllPosts(ctx *fasthttp.RequestCtx) {
 	//взяли id треда
-	id, err := h.toID(r)
+	id, err := h.toID(ctx)
 	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
+		ctx.SetStatusCode(404)
+		data, _ := easyjson.Marshal(models.NotFoundMsg)
+		ctx.Write(data)
 		return
 	}
 
@@ -210,8 +211,14 @@ func (h *Handler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 	params := &models.PostParams{}
 	decoder := schema.NewDecoder()
 	decoder.IgnoreUnknownKeys(true)
-	if err := decoder.Decode(params, r.URL.Query()); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+	argsList := make(map[string][]string)
+
+	ctx.QueryArgs().VisitAll(func(key, value []byte) {
+		argsList[string(key)] = []string{string(value)}
+	})
+
+	if err := decoder.Decode(params, argsList); err != nil {
+		ctx.SetStatusCode(500)
 		return
 	}
 
@@ -275,10 +282,8 @@ func (h *Handler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 				resultPostList = resultPostList[:params.Limit]
 			}
 		}
-		if _, _, err := easyjson.MarshalToHTTPResponseWriter(resultPostList, w); err != nil {
-			http.Error(w, "easy", 500)
-			return
-		}
+		data, _ := easyjson.Marshal(resultPostList)
+		ctx.Write(data)
 		return
 	case "parent_tree":
 		rootPostList := models.PostSet{}
@@ -318,24 +323,20 @@ func (h *Handler) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 			resultPostList = res
 		}
 
-		if _, _, err := easyjson.MarshalToHTTPResponseWriter(resultPostList, w); err != nil {
-			http.Error(w, "easy", 500)
-			return
-		}
+		data, _ := easyjson.Marshal(resultPostList)
+		ctx.Write(data)
 		return
 	default:
 	}
 	err = h.DB.Select(&postList, query, id)
 
-	if _, _, err := easyjson.MarshalToHTTPResponseWriter(postList, w); err != nil {
-		http.Error(w, "easy", 500)
-		return
-	}
+	data, _ := easyjson.Marshal(postList)
+	ctx.Write(data)
 	return
 
 }
-func (h *Handler) toID(r *http.Request) (int, error) {
-	slugOrID := mux.Vars(r)["slug_or_id"]
+func (h *Handler) toID(ctx *fasthttp.RequestCtx) (int, error) {
+	slugOrID := ctx.UserValue("slug_or_id").(string)
 	threadId := -1
 	id, err := strconv.Atoi(slugOrID)
 	if err != nil {
@@ -385,27 +386,40 @@ func (h *Handler) getPosts(parentID int, threadID int, desc bool) models.PostSet
 	}
 }
 func (h *Handler) bulkInsert(unsavedRows models.PostSet, slug string, threadID int, created time.Time) error {
-	valueStrings := make([]string, 0, len(unsavedRows))
-	if cap(valueStrings) == 0 {
+	if len(unsavedRows) == 0 {
 		return nil
 	}
-	valueArgs := make([]interface{}, 0, len(unsavedRows)*6)
-	i := 0
+	//inputRows := [][]interface{}{}
+	batch := &pgx4.Batch{}
 	for _, post := range unsavedRows {
-		valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d)", i*6+1, i*6+2, i*6+3, i*6+4, i*6+5, i*6+6))
-		valueArgs = append(valueArgs, post.Author)
-		valueArgs = append(valueArgs, created)
-		valueArgs = append(valueArgs, slug)
-		valueArgs = append(valueArgs, post.Message)
+		valueArgs := make([]interface{}, 6)
+		valueArgs[0] = post.Author
+		valueArgs[1] = created
+		valueArgs[2] = slug
+		valueArgs[3] = post.Message
+
 		if post.Parent.Int64 != 0 {
-			valueArgs = append(valueArgs, post.Parent)
+			valueArgs[4] = post.Parent
 		} else {
-			valueArgs = append(valueArgs, null.String{})
+			valueArgs[4] = null.String{}
 		}
-		valueArgs = append(valueArgs, threadID)
-		i++
+		valueArgs[5] = threadID
+		//inputRows = append(inputRows, valueArgs)
+		batch.Queue(`insert into posts(author,created,forum,message,parent,thread) VALUES($1,$2,$3,$4,$5,$6)`, valueArgs...)
 	}
-	stmt := fmt.Sprintf("insert into posts(author,created,forum,message,parent,thread) VALUES %s", strings.Join(valueStrings, ","))
-	_, err := h.DB.Exec(stmt, valueArgs...)
-	return err
+	br := h.Conn.SendBatch(context.Background(), batch)
+	defer br.Close()
+	//_, err := h.Conn.CopyFrom(context.Background(), pgx4.Identifier{"posts"},
+	//	[]string{"author", "created", "forum", "message", "parent", "thread"},
+	//	pgx4.CopyFromRows(inputRows))
+
+	if len(unsavedRows) != 100 {
+		for i := 0; i < len(unsavedRows); i++ {
+			_, err := br.Exec()
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

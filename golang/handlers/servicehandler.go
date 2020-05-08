@@ -3,41 +3,39 @@ package handlers
 import (
 	"github.com/Deiklov/tech-db-romanov-andr/golang/models"
 	"github.com/mailru/easyjson"
-	"net/http"
+	"github.com/valyala/fasthttp"
 )
 
-func (h *Handler) ServiceInfo(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ServiceInfo(ctx *fasthttp.RequestCtx) {
 	serviceInfo := &models.Info{}
 	forumsQuery := `select count(*) forum from forums`
 	usersQuery := `select count(*) "user" from users`
 	threadsQuery := `select count(*) thread from threads`
 	postsQuery := `select count(*) post from posts`
 	if err := h.DB.Get(serviceInfo, forumsQuery); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+		ctx.SetStatusCode(500)
 		return
 	}
 	if err := h.DB.Get(serviceInfo, usersQuery); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+		ctx.SetStatusCode(500)
 		return
 	}
 	if err := h.DB.Get(serviceInfo, postsQuery); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+		ctx.SetStatusCode(500)
 		return
 	}
 	if err := h.DB.Get(serviceInfo, threadsQuery); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+		ctx.SetStatusCode(500)
 		return
 	}
-	if _, _, err := easyjson.MarshalToHTTPResponseWriter(serviceInfo, w); err != nil {
-		http.Error(w, "easy", 500)
-		return
-	}
+	data, _ := easyjson.Marshal(serviceInfo)
+	ctx.Write(data)
 }
 
-func (h *Handler) ServiceClear(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ServiceClear(ctx *fasthttp.RequestCtx) {
 	stmtdelete := `TRUNCATE users,forums,posts,threads restart identity cascade`
 	if _, err := h.DB.Exec(stmtdelete); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+		ctx.SetStatusCode(500)
 		return
 	}
 }

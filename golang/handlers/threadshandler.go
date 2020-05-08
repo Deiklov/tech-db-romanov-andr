@@ -5,41 +5,44 @@ import (
 	"github.com/Deiklov/tech-db-romanov-andr/golang/models"
 	"github.com/jackc/pgx"
 	"github.com/mailru/easyjson"
+	"github.com/valyala/fasthttp"
 	"net/http"
 	"strconv"
 )
 
-func (h *Handler) ThreadInfo(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ThreadInfo(ctx *fasthttp.RequestCtx) {
 	thread := &models.Thread{}
-	id, err := h.toID(r)
+	id, err := h.toID(ctx)
 	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
+		ctx.SetStatusCode(404)
+		data, _ := easyjson.Marshal(models.NotFoundMsg)
+		ctx.Write(data)
 		return
 	}
 
 	if err := h.DB.Get(thread, `SELECT * from threads where id=$1`, id); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+		ctx.SetStatusCode(500)
 		return
 	}
 
-	if _, _, err := easyjson.MarshalToHTTPResponseWriter(thread, w); err != nil {
-		http.Error(w, "easy", 500)
-		return
-	}
+	data, _ := easyjson.Marshal(thread)
+	ctx.Write(data)
 }
 
-func (h *Handler) ThreadUpdate(w http.ResponseWriter, r *http.Request) {
-	id, err := h.toID(r)
+func (h *Handler) ThreadUpdate(ctx *fasthttp.RequestCtx) {
+	id, err := h.toID(ctx)
 	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
+		ctx.SetStatusCode(404)
+		data, _ := easyjson.Marshal(models.NotFoundMsg)
+		ctx.Write(data)
 		return
 	}
 	threadUPD := &models.ThreadUpdate{}
 	threadResult := &models.Thread{}
-	if err := easyjson.UnmarshalFromReader(r.Body, threadUPD); err != nil {
-		http.Error(w, "easy", 500)
+	err = easyjson.Unmarshal(ctx.PostBody(), threadUPD)
+	if err != nil {
+		ctx.SetStatusCode(http.StatusInternalServerError)
+		ctx.Write([]byte(`{"error": "Invalid json !"`))
 		return
 	}
 
@@ -57,10 +60,8 @@ func (h *Handler) ThreadUpdate(w http.ResponseWriter, r *http.Request) {
 
 	if threadUPD.Message == "" && threadUPD.Title == "" {
 		h.DB.Get(threadResult, `select * from threads where id=$1`, id)
-		if _, _, err := easyjson.MarshalToHTTPResponseWriter(threadResult, w); err != nil {
-			http.Error(w, "easy", 500)
-			return
-		}
+		data, _ := easyjson.Marshal(threadResult)
+		ctx.Write(data)
 		return
 	}
 
@@ -68,28 +69,29 @@ func (h *Handler) ThreadUpdate(w http.ResponseWriter, r *http.Request) {
 	err = h.DB.Get(threadResult, queryThread)
 	if err != nil {
 		if threadResult.Id <= 0 {
-			w.WriteHeader(http.StatusNotFound)
-			easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
+			ctx.SetStatusCode(404)
+			data, _ := easyjson.Marshal(models.NotFoundMsg)
+			ctx.Write(data)
 			return
 		}
-		w.WriteHeader(http.StatusInternalServerError)
+		ctx.SetStatusCode(500)
 		return
 	}
-	if _, _, err := easyjson.MarshalToHTTPResponseWriter(threadResult, w); err != nil {
-		http.Error(w, "easy", 500)
-		return
-	}
+	data, _ := easyjson.Marshal(threadResult)
+	ctx.Write(data)
+	return
 }
 
-func (h *Handler) ThreadVotes(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ThreadVotes(ctx *fasthttp.RequestCtx) {
 	voice := &models.Vote{}
 	threadResult := &models.Thread{}
-	easyjson.UnmarshalFromReader(r.Body, voice)
+	_ = easyjson.Unmarshal(ctx.PostBody(), voice)
 
-	threadID, err := h.toID(r)
+	threadID, err := h.toID(ctx)
 	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
+		ctx.SetStatusCode(404)
+		data, _ := easyjson.Marshal(models.NotFoundMsg)
+		ctx.Write(data)
 		return
 	}
 
@@ -107,8 +109,9 @@ returning *`
 	if err, ok := err.(pgx.PgError); ok {
 		switch err.Code {
 		case "23502":
-			w.WriteHeader(http.StatusNotFound)
-			easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
+			ctx.SetStatusCode(404)
+			data, _ := easyjson.Marshal(models.NotFoundMsg)
+			ctx.Write(data)
 			return
 		}
 	}
@@ -116,13 +119,12 @@ returning *`
 	err = h.DB.Get(threadResult, `select * from threads where id=$1`, threadID)
 
 	if err == sql.ErrNoRows {
-		w.WriteHeader(http.StatusNotFound)
-		easyjson.MarshalToHTTPResponseWriter(models.NotFoundMsg, w)
+		ctx.SetStatusCode(404)
+		data, _ := easyjson.Marshal(models.NotFoundMsg)
+		ctx.Write(data)
 		return
 	}
 
-	if _, _, err := easyjson.MarshalToHTTPResponseWriter(threadResult, w); err != nil {
-		http.Error(w, "easyjson err", 500)
-		return
-	}
+	data, _ := easyjson.Marshal(threadResult)
+	ctx.Write(data)
 }
