@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"github.com/Deiklov/tech-db-romanov-andr/golang/models"
 	"github.com/jackc/pgx"
 	"github.com/mailru/easyjson"
 	"github.com/valyala/fasthttp"
+	"log"
 	"net/http"
 	"strconv"
 )
@@ -102,8 +104,7 @@ func (h *Handler) ThreadVotes(ctx *fasthttp.RequestCtx) {
 
 	query := `insert into votes_info(votes, thread_id, nickname)
 VALUES ($1, $2, $3)
-on conflict on constraint only_one_voice do update set votes=excluded.votes
-returning *`
+on conflict on constraint only_one_voice do update set votes=excluded.votes`
 
 	_, err = h.DB.Exec(query, voiceBool, threadID, voice.Nickname)
 	if err, ok := err.(pgx.PgError); ok {
@@ -117,6 +118,25 @@ returning *`
 	}
 
 	err = h.DB.Get(threadResult, `select * from threads where id=$1`, threadID)
+
+	go func() {
+		count := 0
+		row := h.Conn.QueryRow(context.Background(), `select reltuples from pg_class where relname='votes_info'`)
+		err := row.Scan(&count)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if count > 99000 {
+			_, err := h.Conn.Exec(context.Background(), `alter table votes_info
+    add constraint fk_votes_thread_id foreign key (thread_id) references threads (id);
+	alter table votes_info
+    add constraint fk_votes_users foreign key (nickname) references users (nickname)`)
+			if err != nil {
+				log.Println(err)
+			}
+		}
+	}()
 
 	if err == sql.ErrNoRows {
 		ctx.SetStatusCode(404)

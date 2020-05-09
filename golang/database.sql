@@ -1,238 +1,103 @@
 create table if not exists users
 (
-    nickname text   not null
+    nickname varchar(128) not null
         constraint users_pk
             primary key,
-    fullname text   not null,
-    about    text,
-    email    citext not null
+    fullname varchar(128) not null,
+    about text,
+    email varchar(128) not null
 );
 
-alter table users
-    owner to docker;
 
 create unique index if not exists users_lower_idx
-    on users (lower(nickname));
+    on users (lower(nickname::text));
 
-create unique index if not exists users_email_uindex
-    on users (email);
+create unique index if not exists users_lower_idx1
+    on users (lower(email::text));
+
+create unique index if not exists users_nickname_idx
+    on users (nickname);
 
 create table if not exists forums
 (
-    posts   integer default 0 not null,
-    slug    text              not null
+    posts integer default 0 not null,
+    slug varchar(128) not null
         constraint forums_pk
             primary key,
     threads integer default 0 not null,
-    title   text              not null,
-    "user"  text              not null
+    title varchar(256) not null,
+    "user" varchar(128) not null
         constraint forums_users_nickname_fk
             references users
             on update set null on delete set null
 );
 
-alter table forums
-    owner to docker;
 
-create index if not exists forums_lower_idx
-    on forums (lower("user"));
+create unique index if not exists forums_lower_idx
+    on forums (lower(slug::text));
 
-create unique index if not exists forums_lower_idx1
-    on forums (lower(slug));
+create index if not exists forums_user_idx
+    on forums ("user");
 
 create table if not exists threads
 (
-    author  text                not null
+    author varchar(128) not null
         constraint threads_users_nickname_fk
             references users,
-    created timestamp default CURRENT_TIMESTAMP,
-    forum   text
+    created timestamp not null,
+    forum varchar(128) not null
         constraint threads_forums_slug_fk
             references forums
             on update cascade on delete cascade,
-    id      serial              not null
+    id serial not null
         constraint threads_pk
             primary key,
-    message text                not null,
-    slug    text,
-    title   text                not null,
-    votes   integer   default 0 not null
+    message text not null,
+    slug varchar(128),
+    title varchar(256) not null,
+    votes integer default 0 not null
 );
 
-alter table threads
-    owner to docker;
+
+create unique index if not exists threads_lower_idx
+    on threads (lower(slug::text));
 
 create unique index if not exists threads_slug_uindex
-    on threads (lower(slug));
+    on threads (slug);
 
+create index if not exists threads_forum_index
+    on threads (forum);
+
+create index if not exists threads_author_index
+    on threads (author);
+
+create unique index if not exists threads_id_votes_idx
+    on threads (id, votes);
+
+create trigger inc_threads
+    after insert
+    on threads
+    for each row
+execute procedure inc_params();
 
 create table if not exists posts
 (
-    author   text                    not null
-        constraint posts_users_nickname_fk
-            references users,
-    created  timestamp default CURRENT_TIMESTAMP,
-    forum    text                    not null
-        constraint posts_forums_slug_fk
-            references forums
-            on update cascade on delete cascade,
-    id       serial                  not null
+    author varchar(128) not null,
+    created timestamp not null,
+    forum varchar(128) not null,
+    id serial not null
         constraint posts_pk
             primary key,
-    isedited boolean   default false not null,
-    message  text                    not null,
-    parent   integer
-        constraint posts_posts_id_fk
-            references posts
-            on update cascade on delete cascade,
-    thread   integer                 not null
-        constraint posts_threads_id_fk
-            references threads
-            on update cascade on delete cascade
+    isedited boolean default false not null,
+    message text not null,
+    thread integer not null,
+    parent integer
 );
 
-alter table posts
-    owner to docker;
-
-create index if not exists posts_lower_idx
-    on posts (lower(author));
-
-create index if not exists posts_lower_idx1
-    on posts (lower(forum));
-
-create index if not exists posts_thread_idx
-    on posts (thread);
-
-create index if not exists posts_parent_idx
-    on posts (parent);
 
 
-create table if not exists votes_info
-(
-    votes     boolean,
-    thread_id integer not null
-        constraint votes_info_threads_id_fk
-            references threads
-            on update cascade on delete cascade,
-    nickname  text    not null
-        constraint votes_info_users_nickname_fk
-            references users,
-    constraint only_one_voice
-        unique (thread_id, nickname)
-);
-
-alter table votes_info
-    owner to docker;
-
-create index if not exists votes_info_lower_idx
-    on votes_info (lower(nickname));
-
-create index if not exists votes_info_thread_id_idx
-    on votes_info (thread_id);
-
-CREATE OR REPLACE FUNCTION check_parent_thread() returns trigger
-    language plpgsql
-as
-$$
-DECLARE
-    i int2;
-BEGIN
-    select count(1)
-    from (select nickname from users where lower(nickname) = lower(new.author)) nick
-    into i;
-    if i < 1 then
-        raise exception 'not found author';
-    end if;
--- проверка на thread идет в гошке
-
-    if new.parent is not null then
-        select count(1)
-        from (select id from posts where thread = new.thread and id = new.parent) val
-        into i;
-        if i < 1 then
-            raise exception 'invalid parent id';
-        end if;
-    end if;
-
-    RETURN NEW;
-END;
-$$;
-
-alter function check_parent_thread() owner to docker;
-
-create or replace function handler_data() returns trigger
-    language plpgsql
-as
-$$
-DECLARE
-    voice int2;
-BEGIN
-    if new.votes then
-        voice = 1;
-    else
-        voice = -1;
-    end if;
-
-    if (TG_OP = 'UPDATE') THEN
-        if old.votes = new.votes then
-        else
-            if new.votes then
-                voice = 2;
-            else
-                voice = -2;
-            end if;
-            update threads set votes=votes + (voice) where id = new.thread_id;
-        end if;
-        return new;
-    end if;
-
-    update threads set votes=votes + (voice) where id = new.thread_id;
-    RETURN NEW;
-END;
-$$;
-
-alter function handler_data() owner to docker;
-
-create function inc_params() returns trigger
-    language plpgsql
-as
-$$
-declare
-    forum_slug text;
-begin
-    forum_slug = new.forum;
-    if tg_name = 'inc_threads' then
-        update forums set threads=threads + 1 where slug = forum_slug;
-    elsif tg_name = 'inc_posts' then
-        update forums set posts=posts + 1 where slug = forum_slug;
-    end if;
-    return new;
-end;
-$$;
-
-alter function inc_params() owner to docker;
-
-create or replace function voice_to_bool() returns trigger
-    language plpgsql
-as
-$$
-DECLARE
-    nick varchar;
-BEGIN
-
-    select nickname from users where lower(nickname) = lower(new.nickname) into nick;
-    new.nickname := nick;
-
-    RETURN NEW;
-END;
-$$;
-
-alter function voice_to_bool() owner to docker;
-
-
-CREATE EXTENSION IF NOT EXISTS citext
-
-
+create index if not exists posts_created_thread_idx
+    on posts (created, thread);
 
 create trigger inc_posts
     after insert
@@ -246,11 +111,16 @@ create trigger check_parent_tr
     for each row
 execute procedure check_parent_thread();
 
-create trigger votes_to_bool
-    before insert or update
-    on votes_info
-    for each row
-execute procedure voice_to_bool();
+create table if not exists votes_info
+(
+    votes boolean,
+    thread_id integer not null,
+    nickname varchar(128) not null,
+    constraint only_one_voice
+        unique (thread_id, nickname)
+);
+
+
 
 create trigger after_modify_votes
     after insert or update
@@ -258,8 +128,9 @@ create trigger after_modify_votes
     for each row
 execute procedure handler_data();
 
-create trigger inc_threads
-    after insert
-    on threads
+create trigger votes_to_bool
+    before insert or update
+    on votes_info
     for each row
-execute procedure inc_params();
+execute procedure get_nickname();
+

@@ -63,7 +63,7 @@ func (h *Handler) CreatePost(ctx *fasthttp.RequestCtx) {
 
 	retPosts := models.PostSet{}
 	err = h.DB.
-		Select(&retPosts, `select * from posts where created=$1 order by id`, currTime)
+		Select(&retPosts, `select * from posts where created=$1 and thread=$2 order by id`, currTime, threadId)
 	if err == sql.ErrNoRows {
 		data, _ := easyjson.Marshal(retPosts)
 		ctx.Write(data)
@@ -341,7 +341,7 @@ func (h *Handler) toID(ctx *fasthttp.RequestCtx) (int, error) {
 	id, err := strconv.Atoi(slugOrID)
 	if err != nil {
 		slug := slugOrID
-		if err := h.DB.Get(&threadId, "select id from threads where lower(slug)=lower($1) limit 1", slug); err != nil {
+		if err := h.DB.Get(&threadId, "select id from threads where lower(slug)=lower($1)", slug); err != nil {
 			return -1, errors.New("not found")
 		}
 	} else {
