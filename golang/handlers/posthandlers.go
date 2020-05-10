@@ -99,7 +99,7 @@ func (h *Handler) GetPost(ctx *fasthttp.RequestCtx) {
 
 	retPost := models.Post{}
 	//нету параметров
-	if err := h.DB.Get(&retPost, `select * from posts where id=$1`, postID); err != nil {
+	if err := h.DB.Get(&retPost, `select author, created, forum, id, isedited, message, thread, parent from posts where id=$1`, postID); err != nil {
 		switch {
 		case err == sql.ErrNoRows:
 			ctx.SetStatusCode(404)
@@ -167,7 +167,7 @@ func (h *Handler) UpdatePost(ctx *fasthttp.RequestCtx) {
 
 	err = easyjson.Unmarshal(ctx.PostBody(), &newPostData)
 
-	if err := h.DB.Get(&retPost, `select * from posts where id=$1`, postID); err != nil {
+	if err := h.DB.Get(&retPost, `select author, created, forum, id, isedited, message, thread, parent from posts where id=$1`, postID); err != nil {
 		switch {
 		case err == sql.ErrNoRows:
 			ctx.SetStatusCode(404)
@@ -188,7 +188,9 @@ func (h *Handler) UpdatePost(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	err = h.DB.Get(&updatedPost, `update posts set message=$1, isedited=true where id=$2 returning *`, newPostData.Message, postID)
+	err = h.DB.Get(&updatedPost, `update posts set message=$1,
+                 isedited=true where id=$2 returning author, created, 
+                     forum, id, isedited, message, thread, parent`, newPostData.Message, postID)
 	if err != nil {
 		ctx.SetStatusCode(500)
 		return
@@ -327,62 +329,102 @@ func (h *Handler) GetAllPosts(ctx *fasthttp.RequestCtx) {
 		ctx.Write(data)
 		return
 	case "parent_tree":
+		var path []int
 		resultPostList := models.PostSet{}
 		switch {
-
 		case params.Desc == false && params.Limit == 0 && params.Since == 0:
+			_ = h.DB.Select(&resultPostList,
+				`select author, created, forum, id, isedited, message, thread,parent from posts where thread=$1 order by path`, thrID)
 
 		case params.Desc == true && params.Limit == 0 && params.Since == 0:
+			_ = h.DB.Select(&resultPostList,
+				`select author, created, forum, id, isedited, message, thread,parent from posts where thread=$1 order by path [2] desc, path`, thrID)
 
 		case params.Desc == false && params.Limit > 0 && params.Since == 0:
-
-		case params.Desc == false && params.Limit == 0 && params.Since > 0:
-
-		case params.Desc == false && params.Limit > 0 && params.Since > 0:
-
-		case params.Desc == true && params.Limit > 0 && params.Since == 0:
-
-		case params.Desc == true && params.Limit == 0 && params.Since > 0:
-
-		case params.Desc == true && params.Limit > 0 && params.Since > 0:
-
-		}
-
-		query := `select author, created, forum, id, isedited, message, thread, parent from posts where thread=$1 order by path`
-
-		if params.Desc {
-			query += `[2] desc, cardinality(path), path[3]`
-		}
-
-		if params.Limit > 0 && params.Since == 0 {
+			//todo можно без in
+			//нет смещения просто лимит пишем правильно
 			query := `select author, created, forum, id, isedited, message, thread, parent
 					from posts
 					where thread = $1
   						and path[1:2] in (select path from posts where thread = $1 and cardinality(path) = 2 order by 1 limit $2)
 					order by path`
-
 			err = h.DB.Select(&resultPostList, query, thrID, params.Limit)
-			data, _ := easyjson.Marshal(resultPostList)
-			ctx.Write(data)
-			return
-		}
-		if params.Since > 0 {
-			var path []int
 
+		case params.Desc == false && params.Limit == 0 && params.Since > 0:
 			err := h.Conn.QueryRow(context.Background(),
-				`select path from posts where path>(select path from posts where id=$1) order by path limit 1`,
-				params.Since).Scan(&path)
+				`select path from posts where thread=$1 and path>(select path from posts where id=$2) order by path limit 1`,
+				thrID, params.Since).Scan(&path)
 			if err != nil {
 				log.Println(err.Error())
 			}
 			query := `select author, created, forum, id, isedited, message, thread, parent
 					from posts where thread = $1 and path >= $2
-						order by path limit $3`
+						order by path`
 
-			err = h.DB.Select(&resultPostList, query, thrID, pq.Array(path), params.Limit)
-			data, _ := easyjson.Marshal(resultPostList)
-			ctx.Write(data)
-			return
+			err = h.DB.Select(&resultPostList, query, thrID, pq.Array(path))
+
+		case params.Desc == false && params.Limit > 0 && params.Since > 0:
+			err = h.DB.Select(&resultPostList,
+				`
+					WITH our_path AS (
+					    select path
+					    from posts
+					    where id = $2
+					)
+					select author, created, forum, id, isedited, message, thread, parent
+					 from posts
+					 where thread = $1
+				   	 and path > (select path from our_path)
+					 and path[1:2] in (select path from posts where thread = $1 and cardinality(path) = 2 and path[1:2] > (select path from our_path)[1:2] order by 1 limit $3)
+					order by path`,
+				thrID, params.Since, params.Limit)
+
+		case params.Desc == true && params.Limit > 0 && params.Since == 0:
+			h.DB.Select(&resultPostList, `select author, created, forum, id, isedited, message, thread, parent
+					from posts
+					where thread = $1
+					  and path[1:2] in (select path
+					                    from posts
+					                    where thread = $1
+					                      and cardinality(path) = 2
+					                    order by 1 desc
+					                    limit $2)
+					order by path[2] desc, path`, thrID, params.Limit)
+
+		case params.Desc == true && params.Limit == 0 && params.Since > 0:
+			h.DB.Select(&resultPostList, `select author, created, forum, id, isedited, message, thread, parent
+					from ((select *
+						   from posts
+						   where thread = $1
+							 and path[1:2] = (select path from posts where id = $2)[1:2]
+							 and path > (select path from posts where id = $2))
+						  union
+						  (select *
+						   from posts
+						   where thread = $1
+							 and path[1:2] < (select path from posts where id = $2)[1:2])) sub
+					order by path[2] desc, path`, thrID, params.Since)
+
+		case params.Desc == true && params.Limit > 0 && params.Since > 0:
+			h.DB.Select(&resultPostList, `select author, created, forum, id, isedited, message, thread, parent
+					from ((select * --свой блок всегда выводим
+						   from posts
+						   where thread = $1
+							 and path[1:2] = (select path from posts where id = $2)[1:2]
+							 and path > (select path from posts where id = $2))
+						  union
+						  (select *
+						   from posts
+						   where thread = $1
+							 and path[1:2] in (select path
+											   from posts
+											   where thread = $1
+												 and cardinality(path) = 2
+												 and path[1:2] < (select path from posts where id = $2)[1:2]
+											   order by 1 desc
+											   limit $3)))
+								  sub
+							order by path[2] desc, path;`, thrID, params.Since, params.Limit)
 		}
 
 		data, _ := easyjson.Marshal(resultPostList)
