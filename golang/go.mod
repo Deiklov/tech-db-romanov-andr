@@ -12,7 +12,7 @@ require (
 	github.com/jackc/pgx v3.6.2+incompatible
 	github.com/jackc/pgx/v4 v4.6.0
 	github.com/jmoiron/sqlx v1.2.0
-	github.com/lib/pq v1.3.0 // indirect
+	github.com/lib/pq v1.3.0
 	github.com/mailru/easyjson v0.7.1
 	github.com/pkg/errors v0.9.1
 	github.com/randallmlough/pgxscan v0.0.0-20191120191928-b26f55b9d3f4 // indirect

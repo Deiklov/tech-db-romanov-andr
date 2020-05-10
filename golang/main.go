@@ -15,8 +15,8 @@ import (
 
 func main() {
 	r := router.New()
-	connectionString := "dbname=docker user=docker password=docker host=0.0.0.0 port=5432"
-	//connectionString := "dbname=tmpxx user=andrey password=167839 host=localhost port=5432"
+	//connectionString := "dbname=docker user=docker password=docker host=0.0.0.0 port=5432"
+	connectionString := "dbname=tmpxx user=andrey password=167839 host=localhost port=5432"
 	db, err := sqlx.Connect("pgx", connectionString)
 	if err != nil {
 		log.Fatal(err)
@@ -26,7 +26,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	createDB(conn)
+	//createDB(conn)
 
 	Handlers := handlers.Handler{db, conn}
 
