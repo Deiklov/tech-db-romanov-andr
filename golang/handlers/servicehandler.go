@@ -33,7 +33,7 @@ func (h *Handler) ServiceInfo(ctx *fasthttp.RequestCtx) {
 }
 
 func (h *Handler) ServiceClear(ctx *fasthttp.RequestCtx) {
-	stmtdelete := `TRUNCATE users,forums,posts,threads restart identity cascade`
+	stmtdelete := `TRUNCATE users,forums,posts,threads,user_forum,votes_info restart identity cascade`
 	if _, err := h.DB.Exec(stmtdelete); err != nil {
 		ctx.SetStatusCode(500)
 		return

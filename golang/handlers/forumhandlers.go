@@ -10,7 +10,6 @@ import (
 	"github.com/valyala/fasthttp"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -235,31 +234,56 @@ func (h *Handler) AllUsersForum(ctx *fasthttp.RequestCtx) {
 
 	users := models.UserSet{}
 
-	userQuery := `SELECT * FROM (select distinct about,email,fullname,nickname from threads
-   join users u on lower(threads.author) = lower(u.nickname) where lower(forum)=lower($1)
-	UNION
-	SELECT DISTINCT about,email,fullname,nickname FROM posts
-	    JOIN users u2 on lower(posts.author) = lower(u2.nickname) WHERE lower(forum)=lower($1)) sub`
+	switch {
+	case params.Desc == false && params.Limit == 0 && params.Since == "":
+		err = h.DB.Select(&users, `select about, email, fullname, users.nickname
+			from user_forum
+         join users on users.nickname = user_forum.nickname
+			where forum = $1 order by lower(users.nickname)`, forumSlug)
 
-	if params.Desc {
-		if params.Since != "" {
-			userQuery += ` where lower(nickname)<'` + strings.ToLower(params.Since) + `' order by lower(nickname) desc `
-		} else {
-			userQuery += ` where lower(nickname)>'` + strings.ToLower(params.Since) + `' order by lower(nickname) desc `
-		}
+	case params.Desc == false && params.Limit == 0 && params.Since != "":
+		err = h.DB.Select(&users, `select about, email, fullname, users.nickname
+			from user_forum
+         join users on users.nickname = user_forum.nickname
+			where forum = $1 and lower(user_forum.nickname)>lower($2) order by lower(users.nickname)`, forumSlug, params.Since)
 
-	} else {
-		userQuery += ` where lower(nickname)>'` + strings.ToLower(params.Since) + `' order by lower(nickname)  `
-	}
+	case params.Desc == false && params.Limit > 0 && params.Since == "":
+		err = h.DB.Select(&users, `select about, email, fullname, users.nickname
+			from user_forum
+         join users on users.nickname = user_forum.nickname
+			where forum = $1 order by lower(users.nickname) limit $2`, forumSlug, params.Limit)
 
-	if params.Limit > 0 {
-		userQuery += ` limit ` + strconv.Itoa(params.Limit)
-	}
-	err = h.DB.Select(&users, userQuery, slug)
+	case params.Desc == false && params.Limit > 0 && params.Since != "":
+		err = h.DB.Select(&users, `select about, email, fullname, users.nickname
+			from user_forum
+         join users on users.nickname = user_forum.nickname
+			where forum = $1 and lower(user_forum.nickname)>lower($2) 
+			order by lower(users.nickname) limit $3`, forumSlug, params.Since, params.Limit)
 
-	if err != nil {
-		ctx.SetStatusCode(500)
-		return
+	case params.Desc == true && params.Limit == 0 && params.Since == "":
+		err = h.DB.Select(&users, `select about, email, fullname, users.nickname
+			from user_forum
+         join users on users.nickname = user_forum.nickname
+			where forum = $1 order by lower(users.nickname) desc`, forumSlug)
+
+	case params.Desc == true && params.Limit == 0 && params.Since != "":
+		err = h.DB.Select(&users, `select about, email, fullname, users.nickname
+			from user_forum
+         join users on users.nickname = user_forum.nickname
+			where forum = $1 and lower(user_forum.nickname)<lower($2) order by lower(users.nickname) desc`, forumSlug, params.Since)
+
+	case params.Desc == true && params.Limit > 0 && params.Since == "":
+		err = h.DB.Select(&users, `select about, email, fullname, users.nickname
+			from user_forum
+         join users on users.nickname = user_forum.nickname
+			where forum = $1 order by lower(users.nickname) desc limit $2`, forumSlug, params.Limit)
+
+	case params.Desc == true && params.Limit > 0 && params.Since != "":
+		err = h.DB.Select(&users, `select about, email, fullname, users.nickname
+			from user_forum
+         join users on users.nickname = user_forum.nickname
+			where forum = $1 and lower(user_forum.nickname)<lower($2) 
+			order by lower(users.nickname) desc limit $3`, forumSlug, params.Since, params.Limit)
 	}
 
 	data, _ := easyjson.Marshal(users)

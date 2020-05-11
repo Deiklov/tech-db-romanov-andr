@@ -77,6 +77,12 @@ create index if not exists threads_author_index
 create unique index if not exists threads_id_votes_idx
     on threads (id, votes);
 
+create index if not exists threads_lower_created_idx
+    on threads (lower(forum::text), created);
+
+create index if not exists threads_lower_created_idx1
+    on threads (lower(forum::text) asc, created desc);
+
 create trigger inc_threads
     after insert
     on threads
@@ -143,4 +149,18 @@ create trigger votes_to_bool
     on votes_info
     for each row
 execute procedure get_nickname();
+
+create table if not exists user_forum
+(
+    forum varchar(128) not null,
+    nickname varchar(128) not null
+);
+
+alter table user_forum owner to docker;
+
+create unique index if not exists user_forum_forum_lower_idx
+    on user_forum (forum, lower(nickname::text));
+
+create unique index if not exists user_forum_forum_lower_idx1
+    on user_forum (forum asc, lower(nickname::text) desc);
 

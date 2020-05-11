@@ -103,9 +103,12 @@ begin
     forum_slug = new.forum;
     if tg_name = 'inc_threads' then
         update forums set threads=threads + 1 where lower(slug) = lower(forum_slug);
+        insert into user_forum (forum, nickname) values (new.forum, new.author) on conflict do nothing;
     elsif tg_name = 'inc_posts' then
         update forums set posts=posts + 1 where lower(slug) = lower(forum_slug);
+        insert into user_forum (forum, nickname) values (new.forum, new.author) on conflict do nothing ;
     end if;
+
     return new;
 end;
 $$;
