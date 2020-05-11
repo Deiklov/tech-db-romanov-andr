@@ -38,6 +38,7 @@ func (h *Handler) CreatePost(ctx *fasthttp.RequestCtx) {
 		ctx.SetStatusCode(500)
 		return
 	}
+
 	currTime := time.Now().UTC()
 	//con, _ := h.Conn.Acquire(context.Background())
 	//defer con.Release()
