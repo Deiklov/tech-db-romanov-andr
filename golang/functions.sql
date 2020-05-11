@@ -3,7 +3,8 @@ CREATE OR REPLACE FUNCTION check_parent_thread() returns trigger
 as
 $$
 DECLARE
-    i int2;
+    i           int;
+    path_parent int[];
 BEGIN
     select count(1)
     from (select nickname from users where lower(nickname) = lower(new.author)) nick
@@ -20,11 +21,28 @@ BEGIN
         if i < 1 then
             raise exception 'invalid parent id';
         end if;
+    else
+        select count(id) from posts where thread = new.thread and cardinality(path) = 2 into i;
+        new.path = ARRAY [0] || i;
+    end if;
+
+    if new.parent is not null then
+        select path from posts where id = new.parent into path_parent;
+        select count(id)
+        from posts
+        where thread = new.thread
+          and cardinality(path_parent) + 1 = cardinality(path)
+          and parent = new.parent
+        into i;
+
+        new.path = path_parent || i;
     end if;
 
     RETURN NEW;
 END;
 $$;
+
+alter function check_parent_thread() owner to docker;
 
 create or replace function get_nickname() returns trigger
     language plpgsql
@@ -39,6 +57,8 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+
+alter function get_nickname() owner to docker;
 
 create or replace function handler_data() returns trigger
     language plpgsql
@@ -71,6 +91,8 @@ BEGIN
 END;
 $$;
 
+alter function handler_data() owner to docker;
+
 create function inc_params() returns trigger
     language plpgsql
 as
@@ -88,11 +110,5 @@ begin
 end;
 $$;
 
-
-
-
-
-
-
-
+alter function inc_params() owner to docker;
 

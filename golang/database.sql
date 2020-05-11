@@ -8,6 +8,7 @@ create table if not exists users
     email varchar(128) not null
 );
 
+alter table users owner to docker;
 
 create unique index if not exists users_lower_idx
     on users (lower(nickname::text));
@@ -32,6 +33,7 @@ create table if not exists forums
             on update set null on delete set null
 );
 
+alter table forums owner to docker;
 
 create unique index if not exists forums_lower_idx
     on forums (lower(slug::text));
@@ -58,6 +60,7 @@ create table if not exists threads
     votes integer default 0 not null
 );
 
+alter table threads owner to docker;
 
 create unique index if not exists threads_lower_idx
     on threads (lower(slug::text));
@@ -91,13 +94,20 @@ create table if not exists posts
     isedited boolean default false not null,
     message text not null,
     thread integer not null,
-    parent integer
+    parent integer,
+    path integer[] not null
 );
 
-
+alter table posts owner to docker;
 
 create index if not exists posts_created_thread_idx
     on posts (created, thread);
+
+create index if not exists posts_cardinality_idx
+    on posts (cardinality(path));
+
+create index if not exists posts_thread_parent_idx
+    on posts (thread, parent);
 
 create trigger inc_posts
     after insert
@@ -120,7 +130,7 @@ create table if not exists votes_info
         unique (thread_id, nickname)
 );
 
-
+alter table votes_info owner to docker;
 
 create trigger after_modify_votes
     after insert or update
