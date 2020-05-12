@@ -19,6 +19,9 @@ create unique index if not exists users_lower_idx1
 create unique index if not exists users_nickname_idx
     on users (nickname);
 
+create unique index if not exists users_nickname_fullname_about_email_idx
+    on users (nickname, fullname, about, email);
+
 create table if not exists forums
 (
     posts integer default 0 not null,
@@ -153,14 +156,17 @@ execute procedure get_nickname();
 create table if not exists user_forum
 (
     forum varchar(128) not null,
-    nickname varchar(128) not null
+    nickname varchar(128) not null,
+    fullname varchar(128) not null,
+    about text,
+    email varchar(128) not null
 );
 
 alter table user_forum owner to docker;
 
-create unique index if not exists user_forum_forum_lower_idx
-    on user_forum (forum, lower(nickname::text));
+create unique index if not exists user_forum_forum_lower_nickname_fullname_about_email_idx
+    on user_forum (forum, lower(nickname::text), nickname, fullname, about, email);
 
-create unique index if not exists user_forum_forum_lower_idx1
-    on user_forum (forum asc, lower(nickname::text) desc);
+create unique index if not exists user_forum_forum_lower_nickname_fullname_about_email_idx1
+    on user_forum (forum asc, lower(nickname::text) desc, nickname asc, fullname asc, about asc, email asc);
 

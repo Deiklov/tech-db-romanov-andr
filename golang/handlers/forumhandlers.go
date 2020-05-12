@@ -236,54 +236,46 @@ func (h *Handler) AllUsersForum(ctx *fasthttp.RequestCtx) {
 
 	switch {
 	case params.Desc == false && params.Limit == 0 && params.Since == "":
-		err = h.DB.Select(&users, `select about, email, fullname, users.nickname
+		err = h.DB.Select(&users, `select about, email, fullname, nickname
 			from user_forum
-         join users on users.nickname = user_forum.nickname
-			where forum = $1 order by lower(users.nickname)`, forumSlug)
+			where forum = $1 order by lower(nickname)`, forumSlug)
 
 	case params.Desc == false && params.Limit == 0 && params.Since != "":
-		err = h.DB.Select(&users, `select about, email, fullname, users.nickname
+		err = h.DB.Select(&users, `select about, email, fullname, nickname
 			from user_forum
-         join users on users.nickname = user_forum.nickname
-			where forum = $1 and lower(user_forum.nickname)>lower($2) order by lower(users.nickname)`, forumSlug, params.Since)
+			where forum = $1 and lower(nickname)>lower($2) order by lower(nickname)`, forumSlug, params.Since)
 
 	case params.Desc == false && params.Limit > 0 && params.Since == "":
-		err = h.DB.Select(&users, `select about, email, fullname, users.nickname
+		err = h.DB.Select(&users, `select about, email, fullname, nickname
 			from user_forum
-         join users on users.nickname = user_forum.nickname
-			where forum = $1 order by lower(users.nickname) limit $2`, forumSlug, params.Limit)
+			where forum = $1 order by lower(nickname) limit $2`, forumSlug, params.Limit)
 
 	case params.Desc == false && params.Limit > 0 && params.Since != "":
-		err = h.DB.Select(&users, `select about, email, fullname, users.nickname
+		err = h.DB.Select(&users, `select about, email, fullname, nickname
 			from user_forum
-         join users on users.nickname = user_forum.nickname
-			where forum = $1 and lower(user_forum.nickname)>lower($2) 
-			order by lower(users.nickname) limit $3`, forumSlug, params.Since, params.Limit)
+			where forum = $1 and lower(nickname)>lower($2) 
+			order by lower(nickname) limit $3`, forumSlug, params.Since, params.Limit)
 
 	case params.Desc == true && params.Limit == 0 && params.Since == "":
-		err = h.DB.Select(&users, `select about, email, fullname, users.nickname
+		err = h.DB.Select(&users, `select about, email, fullname, nickname 
 			from user_forum
-         join users on users.nickname = user_forum.nickname
-			where forum = $1 order by lower(users.nickname) desc`, forumSlug)
+			where forum = $1 order by lower(nickname) desc`, forumSlug)
 
 	case params.Desc == true && params.Limit == 0 && params.Since != "":
-		err = h.DB.Select(&users, `select about, email, fullname, users.nickname
+		err = h.DB.Select(&users, `select about, email, fullname, nickname
 			from user_forum
-         join users on users.nickname = user_forum.nickname
-			where forum = $1 and lower(user_forum.nickname)<lower($2) order by lower(users.nickname) desc`, forumSlug, params.Since)
+			where forum = $1 and lower(nickname)<lower($2) order by lower(nickname) desc`, forumSlug, params.Since)
 
 	case params.Desc == true && params.Limit > 0 && params.Since == "":
-		err = h.DB.Select(&users, `select about, email, fullname, users.nickname
+		err = h.DB.Select(&users, `select about, email, fullname, nickname
 			from user_forum
-         join users on users.nickname = user_forum.nickname
-			where forum = $1 order by lower(users.nickname) desc limit $2`, forumSlug, params.Limit)
+			where forum = $1 order by lower(nickname) desc limit $2`, forumSlug, params.Limit)
 
 	case params.Desc == true && params.Limit > 0 && params.Since != "":
-		err = h.DB.Select(&users, `select about, email, fullname, users.nickname
+		err = h.DB.Select(&users, `select about, email, fullname, nickname
 			from user_forum
-         join users on users.nickname = user_forum.nickname
-			where forum = $1 and lower(user_forum.nickname)<lower($2) 
-			order by lower(users.nickname) desc limit $3`, forumSlug, params.Since, params.Limit)
+			where forum = $1 and lower(nickname)<lower($2) 
+			order by lower(nickname) desc limit $3`, forumSlug, params.Since, params.Limit)
 	}
 
 	data, _ := easyjson.Marshal(users)

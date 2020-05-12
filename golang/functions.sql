@@ -99,19 +99,25 @@ as
 $$
 declare
     forum_slug text;
+    user_data  record;
 begin
     forum_slug = new.forum;
+    select fullname, about, email from users where nickname = new.author into user_data;
+
     if tg_name = 'inc_threads' then
         update forums set threads=threads + 1 where lower(slug) = lower(forum_slug);
-        insert into user_forum (forum, nickname) values (new.forum, new.author) on conflict do nothing;
     elsif tg_name = 'inc_posts' then
         update forums set posts=posts + 1 where lower(slug) = lower(forum_slug);
-        insert into user_forum (forum, nickname) values (new.forum, new.author) on conflict do nothing ;
     end if;
+
+    insert into user_forum (forum, nickname, fullname, about, email)
+    values (new.forum, new.author, user_data.fullname, user_data.about, user_data.email)
+    on conflict do nothing;
 
     return new;
 end;
 $$;
 
 alter function inc_params() owner to docker;
+
 
