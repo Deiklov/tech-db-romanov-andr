@@ -118,6 +118,31 @@ create index if not exists posts_cardinality_idx
 create index if not exists posts_thread_parent_idx
     on posts (thread, parent);
 
+create unique index if not exists posts_id_path_idx
+    on posts (id, path);
+
+create unique index if not exists posts_id_path_idx1
+    on posts (id, path);
+
+create index if not exists posts_thread_cardinality_idx
+    on posts (thread, cardinality(path))
+    where (cardinality(path) = 2);
+
+create index if not exists posts_thread_path_idx
+    on posts (thread, path);
+
+create index if not exists posts_thread_path_idx1
+    on posts (thread asc, path desc);
+
+create index if not exists posts_thread_created_id_idx
+    on posts (thread, created, id);
+
+create index if not exists posts_thread_id_idx
+    on posts (thread, id);
+
+create index if not exists posts_thread_id_idx1
+    on posts (thread asc, id desc);
+
 create trigger inc_posts
     after insert
     on posts
@@ -133,8 +158,12 @@ execute procedure check_parent_thread();
 create table if not exists votes_info
 (
     votes boolean,
-    thread_id integer not null,
-    nickname varchar(128) not null,
+    thread_id integer not null
+        constraint fk_votes_thread_id
+            references threads,
+    nickname varchar(128) not null
+        constraint fk_votes_users
+            references users,
     constraint only_one_voice
         unique (thread_id, nickname)
 );

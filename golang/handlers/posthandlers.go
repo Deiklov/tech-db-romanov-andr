@@ -238,9 +238,9 @@ func (h *Handler) GetAllPosts(ctx *fasthttp.RequestCtx) {
 	}
 
 	if params.Desc {
-		query += ` order by created desc, id desc `
+		query += ` order by  id desc ` //убрал сортировку по дате тк получается чем больше ид тем больше дата
 	} else {
-		query += ` order by created, id `
+		query += ` order by  id `
 	}
 
 	if params.Limit > 0 {

@@ -1,4 +1,4 @@
-CREATE OR REPLACE FUNCTION check_parent_thread() returns trigger
+create function check_parent_thread() returns trigger
     language plpgsql
 as
 $$
@@ -44,7 +44,7 @@ $$;
 
 alter function check_parent_thread() owner to docker;
 
-create or replace function get_nickname() returns trigger
+create function get_nickname() returns trigger
     language plpgsql
 as
 $$
@@ -60,7 +60,7 @@ $$;
 
 alter function get_nickname() owner to docker;
 
-create or replace function handler_data() returns trigger
+create function handler_data() returns trigger
     language plpgsql
 as
 $$
@@ -119,5 +119,4 @@ end;
 $$;
 
 alter function inc_params() owner to docker;
-
 
