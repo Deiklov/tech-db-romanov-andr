@@ -1,4 +1,4 @@
-create table if not exists users
+create unlogged table if not exists users
 (
     nickname varchar(128) not null
         constraint users_pk
@@ -22,7 +22,7 @@ create unique index if not exists users_nickname_idx
 create unique index if not exists users_nickname_fullname_about_email_idx
     on users (nickname, fullname, about, email);
 
-create table if not exists forums
+create unlogged table if not exists forums
 (
     posts integer default 0 not null,
     slug varchar(128) not null
@@ -44,7 +44,7 @@ create unique index if not exists forums_lower_idx
 create index if not exists forums_user_idx
     on forums ("user");
 
-create table if not exists threads
+create unlogged table if not exists threads
 (
     author varchar(128) not null
         constraint threads_users_nickname_fk
@@ -92,7 +92,7 @@ create trigger inc_threads
     for each row
 execute procedure inc_params();
 
-create table if not exists posts
+create unlogged table if not exists posts
 (
     author varchar(128) not null,
     created timestamp not null,
@@ -155,7 +155,7 @@ create trigger check_parent_tr
     for each row
 execute procedure check_parent_thread();
 
-create table if not exists votes_info
+create unlogged table if not exists votes_info
 (
     votes boolean,
     thread_id integer not null
@@ -182,7 +182,7 @@ create trigger votes_to_bool
     for each row
 execute procedure get_nickname();
 
-create table if not exists user_forum
+create unlogged table if not exists user_forum
 (
     forum varchar(128) not null,
     nickname varchar(128) not null,
